@@ -32,6 +32,74 @@ Browser UI
                                         └─ noVNC stream
 ```
 
+## Runtime Diagram
+
+```mermaid
+flowchart LR
+    U[User Browser]
+    UI[React Frontend]
+    N[Nginx]
+    WS[WebSocket Endpoint]
+    API[FastAPI Routes]
+    WM[WebSocketManager]
+    AS[AgentService]
+    SS[LocalSandboxService or SandboxService]
+    AG[E2BVisionAgent / smolagents CodeAgent]
+    O[Ollama]
+    D[Desktop API]
+    F[Firefox]
+    V[noVNC]
+    P[pyautogui + mss]
+
+    U -->|HTTP :7860| N
+    N --> UI
+    U -->|WS /ws| WS
+    WS --> API
+    API --> WM
+    API --> AS
+    AS --> SS
+    AS --> AG
+    AG -->|model inference| O
+    AG -->|desktop tools| D
+    D --> F
+    D --> P
+    D --> V
+    U -->|view desktop :6080| V
+```
+
+## Task Flow Diagram
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Frontend
+    participant WebSocket
+    participant AgentService
+    participant Agent
+    participant Ollama
+    participant Desktop
+
+    User->>Frontend: Enter instruction
+    Frontend->>WebSocket: user_task
+    WebSocket->>AgentService: process_user_task()
+    AgentService-->>Frontend: agent_start
+    AgentService->>Desktop: acquire/open desktop
+    AgentService-->>Frontend: vnc_url_set
+    AgentService->>Agent: run(task)
+    Agent->>Ollama: infer next action
+    Agent->>Desktop: click/type/open_url
+    Desktop-->>AgentService: screenshot
+    AgentService-->>Frontend: agent_log
+    AgentService-->>Frontend: agent_progress
+    alt task completed
+        AgentService-->>Frontend: agent_complete
+    else user clicks stop
+        Frontend->>WebSocket: stop_task
+        WebSocket->>AgentService: stop_task()
+        AgentService-->>Frontend: agent_complete (stopped)
+    end
+```
+
 ## Service Responsibilities
 
 ### `cua2`

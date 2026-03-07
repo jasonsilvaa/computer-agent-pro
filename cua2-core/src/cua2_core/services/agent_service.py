@@ -32,7 +32,7 @@ from starlette.websockets import WebSocketState
 logger = logging.getLogger(__name__)
 
 # Timeout constants to prevent stuck threads
-AGENT_RUN_TIMEOUT = 1000  # 10 minutes - maximum time for agent.run() to complete
+AGENT_RUN_TIMEOUT = 2400  # 40 minutes - for slow local inference (4GB VRAM, ~2 min/step)
 SANDBOX_KILL_TIMEOUT = 30  # 30 seconds - maximum time for sandbox.kill() to complete
 
 
@@ -52,6 +52,7 @@ class AgentService:
         max_sandboxes: int,
     ):
         self.active_tasks: dict[str, ActiveTask] = {}
+        self.processing_tasks: dict[str, asyncio.Task] = {}
         self.websocket_manager: WebSocketManager = websocket_manager
         self.task_websockets: dict[str, WebSocket] = {}
         self.sandbox_service: SandboxService = sandbox_service
@@ -205,7 +206,8 @@ class AgentService:
             # Update archival service with new active task (while holding lock)
             self._update_archival_active_tasks()
 
-        asyncio.create_task(self._agent_processing(trace_id))
+        processing_task = asyncio.create_task(self._agent_processing(trace_id))
+        self.processing_tasks[trace_id] = processing_task
 
         return trace_id
 
@@ -213,6 +215,7 @@ class AgentService:
         self,
         message_id: str,
         step_callback: Callable[[ActionStep, E2BVisionAgent], None],
+        log_callback: Callable[[str], None] | None = None,
     ):
         """Run the task with the appropriate agent"""
 
@@ -304,6 +307,7 @@ class AgentService:
                 data_dir=data_dir,
                 desktop=sandbox,
                 step_callbacks=[step_callback],
+                log_callback=log_callback,
             )
 
             self.active_tasks[message_id].traceMetadata.maxSteps = agent.max_steps
@@ -345,6 +349,9 @@ class AgentService:
                 final_state = "max_steps_reached"
             elif str(e) == "Task not completed":
                 final_state = "stopped"
+
+        except asyncio.CancelledError:
+            final_state = "stopped"
 
         except WebSocketException:
             websocket_exception = True
@@ -406,6 +413,9 @@ class AgentService:
                 if message_id in self.last_screenshot:
                     del self.last_screenshot[message_id]
 
+                if message_id in self.processing_tasks:
+                    del self.processing_tasks[message_id]
+
                 # Update archival service after task removal (while holding lock)
                 self._update_archival_active_tasks()
 
@@ -433,14 +443,19 @@ class AgentService:
             # Capture the event loop reference in the async context
             # This will be used in the callback to safely schedule coroutines from the worker thread
             loop = asyncio.get_running_loop()
+            tool_logs: list[str] = []
+
+            def log_callback(msg: str):
+                tool_logs.append(msg)
 
             def step_callback(memory_step: ActionStep, agent: E2BVisionAgent):
+                active_task = self.active_tasks.get(message_id)
                 assert memory_step.step_number is not None
 
                 if memory_step.step_number > agent.max_steps:
                     raise AgentStopException("Max steps reached")
 
-                if self.active_tasks[message_id].traceMetadata.completed:
+                if active_task is None or active_task.traceMetadata.completed:
                     raise AgentStopException("Task not completed")
 
                 model_output = (
@@ -477,6 +492,17 @@ class AgentService:
                 # Brief pause for UI to update (reduced from 3s for faster execution)
                 time.sleep(0.5)
 
+                # Send tool execution logs (prints) to frontend before the step
+                websocket_for_logs = self.task_websockets.get(message_id)
+                if websocket_for_logs and websocket_for_logs.client_state == WebSocketState.CONNECTED:
+                    for log_msg in tool_logs:
+                        future_log = asyncio.run_coroutine_threadsafe(
+                            self.websocket_manager.send_agent_log(log_msg, websocket_for_logs),
+                            loop,
+                        )
+                        future_log.result()
+                tool_logs.clear()
+
                 image, step_filename = self.last_screenshot[message_id]  # type: ignore
                 assert image is not None and step_filename is not None
                 screenshot_path = os.path.join(agent.data_dir, f"{step_filename}.png")
@@ -503,8 +529,12 @@ class AgentService:
                     )
 
                     # Schedule async operations in the event loop (callback runs in worker thread)
+                    active_task = self.active_tasks.get(message_id)
+                    if active_task is None or active_task.traceMetadata.completed:
+                        raise AgentStopException("Task not completed")
+
                     future1 = asyncio.run_coroutine_threadsafe(
-                        self.active_tasks[message_id].update_trace_metadata(
+                        active_task.update_trace_metadata(
                             step_input_tokens_used=memory_step.token_usage.input_tokens,
                             step_output_tokens_used=memory_step.token_usage.output_tokens,
                             step_duration=memory_step.timing.duration,
@@ -513,7 +543,7 @@ class AgentService:
                         loop,
                     )
                     future2 = asyncio.run_coroutine_threadsafe(
-                        self.active_tasks[message_id].update_step(step),
+                        active_task.update_step(step),
                         loop,
                     )
                     # Wait for both to complete
@@ -525,14 +555,15 @@ class AgentService:
                         future = asyncio.run_coroutine_threadsafe(
                             self.websocket_manager.send_agent_progress(
                                 step=step,
-                                metadata=self.active_tasks[message_id].traceMetadata,
+                                metadata=active_task.traceMetadata,
                                 websocket=websocket,
                             ),
                             loop,
                         )
                         future.result()
 
-                if self.active_tasks[message_id].traceMetadata.completed:
+                active_task = self.active_tasks.get(message_id)
+                if active_task is None or active_task.traceMetadata.completed:
                     raise AgentStopException("Task not completed")
 
                 step_filename = f"{message_id}-{memory_step.step_number + 1}"
@@ -554,7 +585,7 @@ class AgentService:
                 del self.last_screenshot[message_id]
                 self.last_screenshot[message_id] = (image, step_filename)
 
-            await self._agent_runner(message_id, step_callback)
+            await self._agent_runner(message_id, step_callback, log_callback)
         except Exception as e:
             # If _agent_processing fails before _agent_runner is called,
             # we still need to release the sandbox that was acquired in create_id_and_sandbox
@@ -703,6 +734,9 @@ class AgentService:
             await self.active_tasks[trace_id].update_trace_metadata(
                 completed=True,
             )
+            processing_task = self.processing_tasks.get(trace_id)
+            if processing_task and not processing_task.done():
+                processing_task.cancel()
             logger.info(f"Stop signal sent for task {trace_id}")
             return
         # Fallback: find trace_id for this websocket if provided
@@ -711,6 +745,9 @@ class AgentService:
                 for tid, ws in list(self.task_websockets.items()):
                     if ws == websocket and tid in self.active_tasks:
                         await self.active_tasks[tid].update_trace_metadata(completed=True)
+                        processing_task = self.processing_tasks.get(tid)
+                        if processing_task and not processing_task.done():
+                            processing_task.cancel()
                         logger.info(f"Stop signal sent for task {tid} (resolved from websocket)")
                         return
         logger.warning(f"Stop task: trace_id {trace_id} not found in active_tasks")

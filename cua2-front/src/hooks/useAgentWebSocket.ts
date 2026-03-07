@@ -12,6 +12,8 @@ export const useAgentWebSocket = ({ url }: UseAgentWebSocketOptions) => {
     setTrace,
     traceId,
     setTraceId,
+    addExecutionLog,
+    clearExecutionLogs,
     updateTraceWithStep,
     completeTrace,
     setIsAgentProcessing,
@@ -52,6 +54,7 @@ export const useAgentWebSocket = ({ url }: UseAgentWebSocketOptions) => {
           };
 
           // Single update: set trace + clear finalStep/error (avoids trace=undefined flash that triggers redirect)
+          clearExecutionLogs();
           setAgentStartTrace(traceWithMetadata);
           console.log('Agent start received:', traceWithMetadata);
           break;
@@ -78,6 +81,10 @@ export const useAgentWebSocket = ({ url }: UseAgentWebSocketOptions) => {
           console.error('Agent error received:', event.error);
           break;
 
+        case 'agent_log':
+          addExecutionLog(event.message);
+          break;
+
         case 'vnc_url_set':
           setIsConnectingToDesktop(false); // Connected! VNC URL received
           setVncUrl(event.vncUrl);
@@ -97,7 +104,7 @@ export const useAgentWebSocket = ({ url }: UseAgentWebSocketOptions) => {
 
       }
     },
-    [setTrace, updateTraceWithStep, completeTrace, setIsAgentProcessing, setIsConnectingToDesktop, setVncUrl, setError, resetAgent, setTraceId, traceId, setAgentStartTrace]
+    [setTrace, updateTraceWithStep, completeTrace, setIsAgentProcessing, setIsConnectingToDesktop, setVncUrl, setError, resetAgent, setTraceId, traceId, setAgentStartTrace, addExecutionLog, clearExecutionLogs]
   );
 
   // Handle WebSocket errors

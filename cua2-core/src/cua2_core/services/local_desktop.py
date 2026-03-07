@@ -122,7 +122,7 @@ class LocalDesktop:
             ).raise_for_status()
 
     def open(self, url: str) -> None:
-        with httpx.Client(timeout=10) as client:
+        with httpx.Client(timeout=30) as client:
             client.post(
                 f"{self._api_url}/open_browser",
                 json={"url": url},

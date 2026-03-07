@@ -9,12 +9,12 @@ HF_MODELS = [
     "Qwen/Qwen3-VL-235B-A22B-Instruct",
 ]
 
-# Local models (Ollama, no API keys) - optimized for 4GB VRAM
+# Local models (Ollama, no API keys) - optimized for 4GB VRAM (qwen3-vl:2b fastest)
 OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 LOCAL_MODELS = [
+    "ollama/qwen3-vl:2b",
     "ollama/llava",
     "ollama/llava:7b",
-    "ollama/qwen3-vl:2b",
     "ollama/qwen3-vl:4b",
 ]
 

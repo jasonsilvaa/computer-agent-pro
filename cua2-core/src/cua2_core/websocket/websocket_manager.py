@@ -6,6 +6,7 @@ from cua2_core.models.models import (
     ActiveTask,
     AgentCompleteEvent,
     AgentErrorEvent,
+    AgentLogEvent,
     AgentProgressEvent,
     AgentStartEvent,
     AgentStep,
@@ -114,6 +115,11 @@ class WebSocketManager:
     async def send_agent_error(self, error: str, websocket: WebSocket):
         """Send agent error event"""
         event = AgentErrorEvent(error=error)
+        await self.send_message(event, websocket)
+
+    async def send_agent_log(self, message: object, websocket: WebSocket):
+        """Send tool execution log (print) to frontend"""
+        event = AgentLogEvent(message=str(message))
         await self.send_message(event, websocket)
 
     async def send_vnc_url_set(self, vnc_url: str, websocket: WebSocket):

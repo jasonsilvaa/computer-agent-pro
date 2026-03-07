@@ -1,5 +1,14 @@
-import { Header, SandboxViewer, StepsList, Timeline } from '@/components';
-import { selectIsAgentProcessing, selectMetadata, selectSelectedStep, selectTrace, selectVncUrl, useAgentStore } from '@/stores/agentStore';
+import { ExecutionLog, Header, SandboxViewer, StepsList, Timeline } from '@/components';
+import {
+  selectFinalStep,
+  selectIsAgentProcessing,
+  selectIsConnectingToDesktop,
+  selectMetadata,
+  selectSelectedStep,
+  selectTrace,
+  selectVncUrl,
+  useAgentStore,
+} from '@/stores/agentStore';
 import { Box } from '@mui/material';
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -9,24 +18,29 @@ const Task = () => {
 
   // Get state from Zustand store
   const trace = useAgentStore(selectTrace);
+  const executionLogs = useAgentStore((state) => state.executionLogs);
   const isAgentProcessing = useAgentStore(selectIsAgentProcessing);
+  const isConnectingToDesktop = useAgentStore(selectIsConnectingToDesktop);
   const vncUrl = useAgentStore(selectVncUrl);
   const metadata = useAgentStore(selectMetadata);
   const selectedStep = useAgentStore(selectSelectedStep);
+  const finalStep = useAgentStore(selectFinalStep);
   const error = useAgentStore((state) => state.error);
 
-  // Redirect to home if no trace is present
+  // Redirect to home if no trace (allow brief moment for store to update)
   useEffect(() => {
     if (!trace) {
-      console.log('No trace found, redirecting to home...');
-      navigate('/', { replace: true });
+      const t = setTimeout(() => {
+        if (!useAgentStore.getState().trace) {
+          navigate('/', { replace: true });
+        }
+      }, 200);
+      return () => clearTimeout(t);
     }
   }, [trace, navigate]);
 
   // Handler for going back to home
   const handleBackToHome = () => {
-    const currentTrace = useAgentStore.getState().trace;
-
     // Stop the current task if it's running
     const stopTask = (window as Window & { __stopCurrentTask?: () => void }).__stopCurrentTask;
     if (stopTask) {
@@ -40,12 +54,15 @@ const Task = () => {
     window.location.href = '/';
   };
 
-  // Determine if we should show success/fail status (same logic as SandboxViewer)
-  const showStatus = !trace?.isRunning && !selectedStep && metadata && metadata.numberOfSteps > 0;
-
-  // Don't render anything if no trace (will redirect)
+  // Show loading or redirect if no trace
   if (!trace) {
-    return null;
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', backgroundColor: 'background.default' }}>
+        <Box sx={{ textAlign: 'center', color: 'text.secondary' }}>
+          Carregando tarefa...
+        </Box>
+      </Box>
+    );
   }
 
   return (
@@ -122,6 +139,17 @@ const Task = () => {
                 user_evaluation: metadata?.user_evaluation || 'not_evaluated',
               }}
               isRunning={trace?.isRunning || false}
+            />
+
+            {/* Execution log - model responses and tool prints */}
+            <ExecutionLog
+              trace={trace}
+              metadata={metadata}
+              executionLogs={executionLogs}
+              isConnectingToDesktop={isConnectingToDesktop}
+              isAgentProcessing={isAgentProcessing}
+              finalStep={finalStep}
+              error={error}
             />
           </Box>
 

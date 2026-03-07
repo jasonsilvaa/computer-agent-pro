@@ -1,4 +1,5 @@
 // General components
+export { ExecutionLog } from './ExecutionLog';
 export { Header } from './Header';
 export { ConnectionStatus } from './ConnectionStatus';
 export { ProcessingIndicator } from './ProcessingIndicator';

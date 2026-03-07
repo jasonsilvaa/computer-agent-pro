@@ -17,11 +17,11 @@ while [ $i -lt 30 ]; do
   i=$((i + 1))
 done
 
-# Pull all models automatically (optimized for 4GB VRAM)
-echo "Pulling models: llava, llava:7b, qwen3-vl:2b, qwen3-vl:4b..."
+# Pull all models automatically (optimized for 4GB VRAM, qwen3-vl:2b default)
+echo "Pulling models: qwen3-vl:2b, llava, llava:7b, qwen3-vl:4b..."
+ollama pull qwen3-vl:2b || true
 ollama pull llava || true
 ollama pull llava:7b || true
-ollama pull qwen3-vl:2b || true
 ollama pull qwen3-vl:4b || true
 echo "Models ready."
 

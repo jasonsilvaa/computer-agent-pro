@@ -1,6 +1,7 @@
 import os
 import time
 import unicodedata
+from typing import Callable
 
 from cua2_core.services.agent_utils.prompt import E2B_SYSTEM_PROMPT_TEMPLATE
 
@@ -25,12 +26,14 @@ class E2BVisionAgent(CodeAgent):
         planning_interval: int | None = None,
         use_v1_prompt: bool = False,
         qwen_normalization: bool = True,
+        log_callback: Callable[[str], None] | None = None,
         **kwargs,
     ):
         self.desktop = desktop
         self.data_dir = data_dir
         self.planning_interval = planning_interval
         self.qwen_normalization = qwen_normalization
+        self._log_callback = log_callback
         # Initialize Desktop
         self.width, self.height = self.desktop.get_screen_size()
         print(f"Screen size: {self.width}x{self.height}")
@@ -57,6 +60,19 @@ class E2BVisionAgent(CodeAgent):
         # Add screen info to state
         self.state["screen_width"] = self.width
         self.state["screen_height"] = self.height
+
+        # Wrap logger to capture tool execution logs for frontend
+        if log_callback:
+            _original_log = self.logger.log
+
+            def _log_with_callback(msg: str, *args, **kwargs):
+                _original_log(msg, *args, **kwargs)
+                try:
+                    log_callback(msg)
+                except Exception:
+                    pass
+
+            self.logger.log = _log_with_callback
 
         # Add default tools
         self.logger.log("Setting up agent tools...")
@@ -253,7 +269,7 @@ class E2BVisionAgent(CodeAgent):
                 url = f"https://{url}"
             self.desktop.open(url)
 
-            time.sleep(1)
+            time.sleep(2)  # Wait for Firefox to start and page to load
             self.logger.log(f"Opening URL: {url}")
             return f"Opened URL: {url}"
 

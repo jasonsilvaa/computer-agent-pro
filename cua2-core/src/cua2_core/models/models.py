@@ -200,6 +200,13 @@ class AgentErrorEvent(BaseModel):
     error: str
 
 
+class AgentLogEvent(BaseModel):
+    """Tool execution log event (prints from agent)"""
+
+    type: Literal["agent_log"] = "agent_log"
+    message: str
+
+
 class VncUrlSetEvent(BaseModel):
     """Vnc url set event"""
 
@@ -225,6 +232,7 @@ WebSocketEvent: TypeAlias = Annotated[
     | AgentProgressEvent
     | AgentCompleteEvent
     | AgentErrorEvent
+    | AgentLogEvent
     | VncUrlSetEvent
     | VncUrlUnsetEvent
     | HeartbeatEvent,

@@ -31,14 +31,14 @@ services:
       timeout: 10s
       retries: 10
       start_period: 120s
-    # GPU: uncomment if you have NVIDIA GPU + nvidia-container-toolkit
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+    # GPU: NVIDIA RTX 3050 4GB VRAM (requires nvidia-container-toolkit on Linux, or Docker Desktop GPU on Windows)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
 volumes:
   ollama_data: {}

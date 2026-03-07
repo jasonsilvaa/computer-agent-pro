@@ -6,6 +6,7 @@ interface AgentState {
   // State
   trace?: AgentTrace;
   traceId: string | null; // Set by backend heartbeat, persists during connection
+  executionLogs: string[]; // Tool execution prints from backend
   isAgentProcessing: boolean;
   isConnectingToDesktop: boolean;
   vncUrl: string;
@@ -21,6 +22,8 @@ interface AgentState {
   // Actions
   setTrace: (trace: AgentTrace | undefined) => void;
   setTraceId: (traceId: string | null) => void;
+  addExecutionLog: (message: string) => void;
+  clearExecutionLogs: () => void;
   updateTraceWithStep: (step: AgentStep, metadata: AgentTraceMetadata) => void;
   updateStepEvaluation: (stepId: string, evaluation: 'like' | 'dislike' | 'neutral') => void;
   updateTraceEvaluation: (evaluation: 'success' | 'failed' | 'not_evaluated') => void;
@@ -42,6 +45,7 @@ interface AgentState {
 const initialState = {
   trace: undefined,
   traceId: null, // Will be set by backend heartbeat
+  executionLogs: [],
   isAgentProcessing: false,
   isConnectingToDesktop: false,
   vncUrl: '',
@@ -67,6 +71,12 @@ export const useAgentStore = create<AgentState>()(
       // Set trace ID (set by backend heartbeat, only cleared on disconnect)
       setTraceId: (traceId) =>
         set({ traceId }, false, 'setTraceId'),
+
+      addExecutionLog: (message) =>
+        set((state) => ({ executionLogs: [...state.executionLogs, message] }), false, 'addExecutionLog'),
+
+      clearExecutionLogs: () =>
+        set({ executionLogs: [] }, false, 'clearExecutionLogs'),
 
       // Update trace with a new step
       updateTraceWithStep: (step, metadata) =>

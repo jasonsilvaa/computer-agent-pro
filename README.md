@@ -85,6 +85,12 @@ computer-agent-pro/
 
 ---
 
+## Architecture
+
+For the full technical architecture, including containers, backend services, frontend state, execution flow, WebSocket events, and repository layout, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+
+---
+
 ## Configuration
 
 ### Local mode (default)
@@ -102,22 +108,14 @@ E2B_API_KEY=your_e2b_api_key
 
 Then rebuild and run. The app will use HuggingFace Inference and E2B sandboxes instead of local Ollama/desktop.
 
-### GPU support
+### GPU support (RTX 3050 4GB)
 
-To use NVIDIA GPU with Ollama, uncomment the GPU section in `docker-compose.yml`:
+GPU is enabled in `docker-compose.yml` for NVIDIA. Requirements:
 
-```yaml
-# In ollama service:
-deploy:
-  resources:
-    reservations:
-      devices:
-        - driver: nvidia
-          count: 1
-          capabilities: [gpu]
-```
+- **Windows (Docker Desktop)**: Settings → Resources → WSL Integration → enable "Use the WSL 2 based engine" and restart. Keep NVIDIA drivers updated.
+- **Linux**: Install [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
 
-Requires [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
+Default models (llava, qwen3-vl:2b, qwen3-vl:4b) are suitable for 4GB VRAM.
 
 ---
 

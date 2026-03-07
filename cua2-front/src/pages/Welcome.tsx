@@ -12,8 +12,8 @@ const Welcome = () => {
 
   const handleSendNewTask = (instruction: string, modelId: string) => {
     sendTask(instruction, modelId);
-    // Navigate to task page after starting task
-    navigate('/task');
+    // Defer navigate to ensure store (trace) is updated before Task mounts
+    setTimeout(() => navigate('/task'), 50);
   };
 
   return (

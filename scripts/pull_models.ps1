@@ -3,7 +3,7 @@
 
 Write-Host "Pulling Ollama models for CUA2..."
 
-$models = @("llava", "llava:7b", "qwen3-vl:2b", "qwen3-vl:4b")
+$models = @("qwen3-vl:2b", "llava", "llava:7b", "qwen3-vl:4b")
 foreach ($model in $models) {
     Write-Host "Pulling $model..."
     docker compose exec ollama ollama pull $model

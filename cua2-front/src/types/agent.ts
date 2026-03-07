@@ -70,6 +70,11 @@ interface AgentErrorEvent {
   error: string;
 }
 
+interface AgentLogEvent {
+  type: 'agent_log';
+  message: string;
+}
+
 interface VncUrlSetEvent {
   type: 'vnc_url_set';
   vncUrl: string;
@@ -89,6 +94,7 @@ export type WebSocketEvent =
   | AgentProgressEvent
   | AgentCompleteEvent
   | AgentErrorEvent
+  | AgentLogEvent
   | VncUrlSetEvent
   | VncUrlUnsetEvent
   | HeartbeatEvent;

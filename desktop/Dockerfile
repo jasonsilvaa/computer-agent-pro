@@ -7,7 +7,9 @@ RUN apt-get update && apt-get install -y \
     xvfb \
     xfce4 \
     x11vnc \
+    x11-utils \
     firefox \
+    curl \
     dbus-x11 \
     python3 \
     python3-pip \
@@ -20,7 +22,9 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 RUN python3 -m venv /app/venv
 ENV PATH="/app/venv/bin:$PATH"
-RUN pip install --upgrade pip && pip install flask pyautogui mss pillow
+RUN pip install --upgrade pip \
+    && pip install flask pyautogui mss pillow playwright \
+    && python -m playwright install chromium
 COPY api.py .
 
 # noVNC is served by a separate service or we run it here

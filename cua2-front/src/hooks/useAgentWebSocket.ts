@@ -1,5 +1,5 @@
 import { useAgentStore } from '@/stores/agentStore';
-import { AgentTrace, AgentTraceMetadata, WebSocketEvent } from '@/types/agent';
+import { WebSocketEvent } from '@/types/agent';
 import { useCallback, useEffect } from 'react';
 import { useWebSocket } from './useWebSocket';
 
@@ -9,19 +9,14 @@ interface UseAgentWebSocketOptions {
 
 export const useAgentWebSocket = ({ url }: UseAgentWebSocketOptions) => {
   const {
-    setTrace,
-    traceId,
     setTraceId,
+    setExecutionStatus,
     addExecutionLog,
-    clearExecutionLogs,
     updateTraceWithStep,
     completeTrace,
-    setIsAgentProcessing,
-    setIsConnectingToDesktop,
     setVncUrl,
     setError,
     setIsConnected,
-    selectedModelId,
     resetAgent,
     setAgentStartTrace,
   } = useAgentStore();
@@ -33,7 +28,6 @@ export const useAgentWebSocket = ({ url }: UseAgentWebSocketOptions) => {
 
       switch (event.type) {
         case 'agent_start': {
-          // Ensure trace has proper metadata with default maxSteps if not provided
           const traceWithMetadata = {
             ...event.agentTrace,
             traceMetadata: event.agentTrace.traceMetadata ? {
@@ -50,61 +44,66 @@ export const useAgentWebSocket = ({ url }: UseAgentWebSocketOptions) => {
               maxSteps: 200,
               completed: false,
               final_state: null,
+              user_evaluation: 'not_evaluated' as const,
             },
           };
 
-          // Single update: set trace + clear finalStep/error (avoids trace=undefined flash that triggers redirect)
-          clearExecutionLogs();
           setAgentStartTrace(traceWithMetadata);
           console.log('Agent start received:', traceWithMetadata);
           break;
         }
 
         case 'agent_progress':
-          // Add new step from agent trace run with image, generated text, actions, tokens and timestamp
-          setIsConnectingToDesktop(false); // Connected! First step received
           updateTraceWithStep(event.agentStep, event.traceMetadata);
           console.log('Agent progress received:', event.agentStep);
           break;
 
         case 'agent_complete':
-          setIsAgentProcessing(false);
-          setIsConnectingToDesktop(false);
           completeTrace(event.traceMetadata, event.final_state);
           console.log('Agent complete received:', event.traceMetadata, 'Final state:', event.final_state);
           break;
 
         case 'agent_error':
-          setIsAgentProcessing(false);
-          setIsConnectingToDesktop(false);
           setError(event.error);
           console.error('Agent error received:', event.error);
           break;
 
         case 'agent_log':
-          addExecutionLog(event.message);
+          if (event.traceId === useAgentStore.getState().traceId || event.traceId === useAgentStore.getState().trace?.id) {
+            addExecutionLog(event.message);
+          }
           break;
 
         case 'vnc_url_set':
-          setIsConnectingToDesktop(false); // Connected! VNC URL received
           setVncUrl(event.vncUrl);
+          {
+            const currentStatus = useAgentStore.getState().executionStatus;
+            if (currentStatus === 'connecting') {
+              setExecutionStatus('running');
+            }
+          }
           console.log('VNC URL set received:', event.vncUrl);
           break;
 
         case 'vnc_url_unset':
-          setVncUrl('');
+          {
+            const currentStatus = useAgentStore.getState().executionStatus;
+            if (!['connecting', 'running', 'stopping'].includes(currentStatus)) {
+              setVncUrl('');
+            }
+          }
           console.log('VNC URL unset received');
           break;
 
         case 'heartbeat':
           console.log('Heartbeat received:', event);
-          setTraceId(event.uuid);
-          console.log('TraceId set from backend:', event.uuid);
+          setTraceId(event.traceId);
+          console.log('TraceId set from backend:', event.traceId);
           break;
 
       }
     },
-    [setTrace, updateTraceWithStep, completeTrace, setIsAgentProcessing, setIsConnectingToDesktop, setVncUrl, setError, resetAgent, setTraceId, traceId, setAgentStartTrace, addExecutionLog, clearExecutionLogs]
+    [addExecutionLog, completeTrace, setAgentStartTrace, setError, setExecutionStatus, setTraceId, setVncUrl, updateTraceWithStep]
   );
 
   // Handle WebSocket errors
@@ -124,76 +123,47 @@ export const useAgentWebSocket = ({ url }: UseAgentWebSocketOptions) => {
   useEffect(() => {
     setIsConnected(isConnected);
 
-    // Clear traceId when websocket disconnects
     if (!isConnected) {
       setTraceId(null);
       console.log('WebSocket disconnected - traceId cleared');
     }
   }, [isConnected, setIsConnected, setTraceId]);
 
-  // Create a global sendNewTask function that can be called from anywhere
-  useEffect(() => {
-    // Store sendNewTask in window for global access
-    (window as Window & { __sendNewTask?: (instruction: string, modelId: string) => void }).__sendNewTask = (instruction: string, modelId: string) => {
-      // Reset agent state before starting a new task
-      resetAgent();
+  const sendTask = useCallback((instruction: string, modelId: string) => {
+    const state = useAgentStore.getState();
+    if (!state.traceId) {
+      state.setError('WebSocket ainda não está pronto. Aguarde a conexão e tente novamente.');
+      return false;
+    }
 
-      // Ensure traceId is set before creating trace
-      if (!traceId) {
-        console.error('Internal error: Cannot send task. TraceId not set. Refreshing page...');
-        window.location.reload();
-        return;
-      }
+    resetAgent();
+    useAgentStore.getState().setExecutionStatus('connecting');
 
-      const trace: AgentTrace = {
-        id: traceId,
-        instruction,
-        modelId: modelId,
-        timestamp: new Date(),
-        isRunning: true,
-        traceMetadata: {
-          traceId: traceId,
-          inputTokensUsed: 0,
-          outputTokensUsed: 0,
-          duration: 0,
-          numberOfSteps: 0,
-          maxSteps: 200, // Default max steps, will be updated by backend
-          completed: false,
-          final_state: null,
-        } as AgentTraceMetadata,
-      };
+    sendMessage({
+      type: 'user_task',
+      traceId: state.traceId,
+      instruction,
+      modelId,
+    });
 
-      setTrace(trace);
-      setIsAgentProcessing(true);
-      setIsConnectingToDesktop(true); // Start connecting when task is sent
+    console.log('Task sent:', { traceId: state.traceId, instruction, modelId });
+    return true;
+  }, [resetAgent, sendMessage]);
 
-      // Send message to Python backend via WebSocket
-      sendMessage({
-        type: 'user_task',
-        trace: trace,
-      });
-
-      console.log('Task sent:', trace);
-    };
-  }, [setTrace, setIsAgentProcessing, setIsConnectingToDesktop, sendMessage, resetAgent, traceId]);
-
-  // Function to stop the current task
   const stopCurrentTask = useCallback(() => {
     const state = useAgentStore.getState();
-    const trace = state.trace;
-    const traceIdFromStore = state.traceId;
-    const traceId = trace?.id || traceIdFromStore;
+    const traceId = state.trace?.id || state.traceId;
+    const isRunning = ['connecting', 'running', 'stopping'].includes(state.executionStatus);
 
-    if (traceId && (trace?.isRunning ?? state.isAgentProcessing)) {
+    if (traceId && isRunning) {
+      state.setExecutionStatus('stopping');
       sendMessage({
         type: 'stop_task',
-        trace_id: traceId,
+        traceId,
       });
       console.log('Stop task sent for trace:', traceId);
-
-      // Don't update UI state here - wait for backend to send agent_complete with final_state='stopped'
     } else {
-      console.warn('Stop ignored: no traceId or task not running', { traceId, trace, isAgentProcessing: state.isAgentProcessing });
+      console.warn('Stop ignored: no traceId or task not running', { traceId, executionStatus: state.executionStatus });
     }
   }, [sendMessage]);
 
@@ -201,6 +171,7 @@ export const useAgentWebSocket = ({ url }: UseAgentWebSocketOptions) => {
     isConnected,
     connectionState,
     manualReconnect,
+    sendTask,
     stopCurrentTask,
   };
 };

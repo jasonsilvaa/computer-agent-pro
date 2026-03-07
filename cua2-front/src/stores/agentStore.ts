@@ -2,13 +2,19 @@ import { AgentStep, AgentTrace, AgentTraceMetadata, FinalStep } from '@/types/ag
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 
+export type ExecutionStatus =
+  | 'idle'
+  | 'connecting'
+  | 'running'
+  | 'stopping'
+  | 'completed'
+  | 'failed';
+
 interface AgentState {
-  // State
   trace?: AgentTrace;
-  traceId: string | null; // Set by backend heartbeat, persists during connection
-  executionLogs: string[]; // Tool execution prints from backend
-  isAgentProcessing: boolean;
-  isConnectingToDesktop: boolean;
+  traceId: string | null;
+  executionStatus: ExecutionStatus;
+  executionLogs: string[];
   vncUrl: string;
   selectedModelId: string;
   availableModels: string[];
@@ -16,20 +22,17 @@ interface AgentState {
   isConnected: boolean;
   error?: string;
   isDarkMode: boolean;
-  selectedStepIndex: number | null; // null = live mode, number = viewing specific step or 'final'
-  finalStep?: FinalStep; // Special step for success/failure
-
-  // Actions
+  selectedStepIndex: number | null;
+  finalStep?: FinalStep;
   setTrace: (trace: AgentTrace | undefined) => void;
   setTraceId: (traceId: string | null) => void;
+  setExecutionStatus: (status: ExecutionStatus) => void;
   addExecutionLog: (message: string) => void;
   clearExecutionLogs: () => void;
   updateTraceWithStep: (step: AgentStep, metadata: AgentTraceMetadata) => void;
   updateStepEvaluation: (stepId: string, evaluation: 'like' | 'dislike' | 'neutral') => void;
   updateTraceEvaluation: (evaluation: 'success' | 'failed' | 'not_evaluated') => void;
   completeTrace: (metadata: AgentTraceMetadata, finalState?: 'success' | 'stopped' | 'max_steps_reached' | 'error' | 'sandbox_timeout') => void;
-  setIsAgentProcessing: (processing: boolean) => void;
-  setIsConnectingToDesktop: (connecting: boolean) => void;
   setVncUrl: (url: string) => void;
   setSelectedModelId: (modelId: string) => void;
   setAvailableModels: (models: string[]) => void;
@@ -44,18 +47,17 @@ interface AgentState {
 
 const initialState = {
   trace: undefined,
-  traceId: null, // Will be set by backend heartbeat
+  traceId: null,
+  executionStatus: 'idle' as ExecutionStatus,
   executionLogs: [],
-  isAgentProcessing: false,
-  isConnectingToDesktop: false,
   vncUrl: '',
-  selectedModelId: 'ollama/llava',
+  selectedModelId: 'ollama/qwen3-vl:2b',
   availableModels: [],
   isLoadingModels: false,
   isConnected: false,
   error: undefined,
   isDarkMode: false,
-  selectedStepIndex: null, // null = live mode
+  selectedStepIndex: null,
   finalStep: undefined,
 };
 
@@ -64,21 +66,23 @@ export const useAgentStore = create<AgentState>()(
     (set) => ({
       ...initialState,
 
-      // Set the complete trace
-      setTrace: (trace) =>
-        set({ trace }, false, 'setTrace'),
+      setTrace: (trace) => set({ trace }, false, 'setTrace'),
 
-      // Set trace ID (set by backend heartbeat, only cleared on disconnect)
-      setTraceId: (traceId) =>
-        set({ traceId }, false, 'setTraceId'),
+      setTraceId: (traceId) => set({ traceId }, false, 'setTraceId'),
+
+      setExecutionStatus: (executionStatus) =>
+        set({ executionStatus }, false, 'setExecutionStatus'),
 
       addExecutionLog: (message) =>
-        set((state) => ({ executionLogs: [...state.executionLogs, message] }), false, 'addExecutionLog'),
+        set(
+          (state) => ({ executionLogs: [...state.executionLogs, message] }),
+          false,
+          'addExecutionLog'
+        ),
 
       clearExecutionLogs: () =>
         set({ executionLogs: [] }, false, 'clearExecutionLogs'),
 
-      // Update trace with a new step
       updateTraceWithStep: (step, metadata) =>
         set(
           (state) => {
@@ -86,10 +90,8 @@ export const useAgentStore = create<AgentState>()(
 
             const existingSteps = state.trace.steps || [];
             const stepExists = existingSteps.some((s) => s.stepId === step.stepId);
-
             if (stepExists) return state;
 
-            // Preserve existing maxSteps if new metadata has 0
             const updatedMetadata = {
               ...metadata,
               maxSteps: metadata.maxSteps > 0
@@ -104,28 +106,26 @@ export const useAgentStore = create<AgentState>()(
                 traceMetadata: updatedMetadata,
                 isRunning: true,
               },
+              executionStatus: 'running' as ExecutionStatus,
             };
           },
           false,
           'updateTraceWithStep'
         ),
 
-      // Update step evaluation in the store
       updateStepEvaluation: (stepId, evaluation) =>
         set(
           (state) => {
-            if (!state.trace || !state.trace.steps) return state;
-
-            const updatedSteps = state.trace.steps.map((step) =>
-              step.stepId === stepId
-                ? { ...step, step_evaluation: evaluation }
-                : step
-            );
+            if (!state.trace?.steps) return state;
 
             return {
               trace: {
                 ...state.trace,
-                steps: updatedSteps,
+                steps: state.trace.steps.map((step) =>
+                  step.stepId === stepId
+                    ? { ...step, step_evaluation: evaluation }
+                    : step
+                ),
               },
             };
           },
@@ -133,11 +133,10 @@ export const useAgentStore = create<AgentState>()(
           'updateStepEvaluation'
         ),
 
-      // Update trace evaluation in the store
       updateTraceEvaluation: (evaluation) =>
         set(
           (state) => {
-            if (!state.trace || !state.trace.traceMetadata) return state;
+            if (!state.trace?.traceMetadata) return state;
 
             const updatedMetadata = {
               ...state.trace.traceMetadata,
@@ -149,7 +148,6 @@ export const useAgentStore = create<AgentState>()(
                 ...state.trace,
                 traceMetadata: updatedMetadata,
               },
-              // Also update finalStep metadata if it exists
               finalStep: state.finalStep ? {
                 ...state.finalStep,
                 metadata: {
@@ -163,23 +161,21 @@ export const useAgentStore = create<AgentState>()(
           'updateTraceEvaluation'
         ),
 
-      // Complete the trace
-      completeTrace: (metadata, finalState?: 'success' | 'stopped' | 'max_steps_reached' | 'error' | 'sandbox_timeout') =>
+      completeTrace: (metadata, finalState) =>
         set(
           (state) => {
             if (!state.trace) return state;
 
-            // Preserve existing maxSteps if new metadata has 0
-            const updatedMetadata = {
+            const updatedMetadata: AgentTraceMetadata = {
               ...metadata,
               maxSteps: metadata.maxSteps > 0
                 ? metadata.maxSteps
                 : (state.trace.traceMetadata?.maxSteps || 200),
               completed: true,
+              final_state: finalState ?? metadata.final_state ?? null,
             };
 
-            // Determine the final step type based on final_state from backend
-            let stepType: 'success' | 'failure' | 'stopped' | 'max_steps_reached' | 'sandbox_timeout';
+            let stepType: FinalStep['type'];
             let stepMessage: string | undefined;
 
             if (finalState === 'stopped') {
@@ -196,14 +192,7 @@ export const useAgentStore = create<AgentState>()(
               stepMessage = state.error || 'Task failed';
             } else {
               stepType = 'success';
-              stepMessage = undefined;
             }
-
-            const finalStep: FinalStep = {
-              type: stepType,
-              message: stepMessage,
-              metadata: updatedMetadata,
-            };
 
             return {
               trace: {
@@ -211,130 +200,128 @@ export const useAgentStore = create<AgentState>()(
                 isRunning: false,
                 traceMetadata: updatedMetadata,
               },
-              finalStep,
-              // Keep error in state for display
-              selectedStepIndex: null, // Reset to live mode on completion
+              finalStep: {
+                type: stepType,
+                message: stepMessage,
+                metadata: updatedMetadata,
+              },
+              executionStatus: stepType === 'failure' ? 'failed' : 'completed',
+              selectedStepIndex: null,
             };
           },
           false,
           'completeTrace'
         ),
 
-      // Set processing state
-      setIsAgentProcessing: (isAgentProcessing) =>
-        set({ isAgentProcessing }, false, 'setIsAgentProcessing'),
+      setVncUrl: (vncUrl) => set({ vncUrl }, false, 'setVncUrl'),
 
-      setIsConnectingToDesktop: (isConnectingToDesktop) =>
-        set({ isConnectingToDesktop }, false, 'setIsConnectingToDesktop'),
-
-      // Set VNC URL
-      setVncUrl: (vncUrl) =>
-        set({ vncUrl }, false, 'setVncUrl'),
-
-      // Set selected model ID
       setSelectedModelId: (selectedModelId) =>
         set({ selectedModelId }, false, 'setSelectedModelId'),
 
-      // Set available models
       setAvailableModels: (availableModels) =>
         set({ availableModels }, false, 'setAvailableModels'),
 
-      // Set loading models state
       setIsLoadingModels: (isLoadingModels) =>
         set({ isLoadingModels }, false, 'setIsLoadingModels'),
 
-      // Set connection status
       setIsConnected: (isConnected) =>
         set({ isConnected }, false, 'setIsConnected'),
 
-      // Set error
       setError: (error) =>
         set(
           (state) => {
-            // If there's an error and a trace, mark it as failed
-            if (error && state.trace) {
-              const metadata = state.trace.traceMetadata || {
-                traceId: state.trace.id,
-                inputTokensUsed: 0,
-                outputTokensUsed: 0,
-                duration: 0,
-                numberOfSteps: state.trace.steps?.length || 0,
-                maxSteps: 200,
-                completed: false,
-                final_state: null,
-                user_evaluation: 'not_evaluated' as const,
-              };
+            if (!error) {
+              return { error: undefined };
+            }
 
-              // Ensure maxSteps is not 0
-              const finalMetadata: AgentTraceMetadata = {
-                ...metadata,
-                maxSteps: metadata.maxSteps > 0 ? metadata.maxSteps : 200,
-                final_state: metadata.final_state || null,
-                user_evaluation: metadata.user_evaluation || 'not_evaluated',
-              };
+            if (!state.trace) {
+              return { error, executionStatus: 'failed' as ExecutionStatus };
+            }
 
-              const finalStep: FinalStep = {
+            const metadata = state.trace.traceMetadata || {
+              traceId: state.trace.id,
+              inputTokensUsed: 0,
+              outputTokensUsed: 0,
+              duration: 0,
+              numberOfSteps: state.trace.steps?.length || 0,
+              maxSteps: 200,
+              completed: false,
+              final_state: null,
+              user_evaluation: 'not_evaluated' as const,
+            };
+
+            const finalMetadata: AgentTraceMetadata = {
+              ...metadata,
+              maxSteps: metadata.maxSteps > 0 ? metadata.maxSteps : 200,
+              final_state: metadata.final_state || 'error',
+              user_evaluation: metadata.user_evaluation || 'not_evaluated',
+            };
+
+            return {
+              error,
+              finalStep: {
                 type: 'failure',
                 message: error,
                 metadata: finalMetadata,
-              };
-
-              return {
-                error,
-                finalStep,
-                trace: {
-                  ...state.trace,
-                  isRunning: false,
-                },
-                selectedStepIndex: null, // Reset to live mode on error
-              };
-            }
-            return { error };
+              },
+              trace: {
+                ...state.trace,
+                isRunning: false,
+              },
+              executionStatus: 'failed' as ExecutionStatus,
+              selectedStepIndex: null,
+            };
           },
           false,
           'setError'
         ),
 
-      // Set selected step index for time travel
       setSelectedStepIndex: (selectedStepIndex) =>
         set({ selectedStepIndex }, false, 'setSelectedStepIndex'),
 
-      // Toggle dark mode
       toggleDarkMode: () =>
         set((state) => ({ isDarkMode: !state.isDarkMode }), false, 'toggleDarkMode'),
 
-      // Reset agent state (but preserve traceId from backend during connection)
       resetAgent: () =>
-        set((state) => ({
-          ...initialState,
-          traceId: state.traceId,  // IMPORTANT: Keep traceId from backend
-          isDarkMode: state.isDarkMode,  // Keep dark mode preference
-          isConnected: state.isConnected,  // Keep connection status
-          selectedModelId: state.selectedModelId,  // Keep selected model
-          availableModels: state.availableModels,  // Keep available models
-          isLoadingModels: state.isLoadingModels  // Keep loading state
-        }), false, 'resetAgent'),
+        set(
+          (state) => ({
+            ...initialState,
+            traceId: state.traceId,
+            isDarkMode: state.isDarkMode,
+            isConnected: state.isConnected,
+            selectedModelId: state.selectedModelId,
+            availableModels: state.availableModels,
+            isLoadingModels: state.isLoadingModels,
+          }),
+          false,
+          'resetAgent'
+        ),
 
-      // Set trace on agent_start without clearing trace (avoids redirect flash)
       setAgentStartTrace: (trace) =>
-        set((state) => ({
-          trace,
-          finalStep: undefined,
-          error: undefined,
-          selectedStepIndex: null,
-          isAgentProcessing: true,
-          isConnectingToDesktop: true,
-        }), false, 'setAgentStartTrace'),
+        set(
+          {
+            trace,
+            finalStep: undefined,
+            error: undefined,
+            selectedStepIndex: null,
+            executionLogs: [],
+            executionStatus: 'connecting',
+          },
+          false,
+          'setAgentStartTrace'
+        ),
     }),
     { name: 'AgentStore' }
   )
 );
 
-// Selectors for better performance
 export const selectTrace = (state: AgentState) => state.trace;
 export const selectTraceId = (state: AgentState) => state.traceId;
-export const selectIsAgentProcessing = (state: AgentState) => state.isAgentProcessing;
-export const selectIsConnectingToDesktop = (state: AgentState) => state.isConnectingToDesktop;
+export const selectExecutionStatus = (state: AgentState) => state.executionStatus;
+export const selectIsAgentProcessing = (state: AgentState) =>
+  ['connecting', 'running', 'stopping'].includes(state.executionStatus);
+export const selectIsConnectingToDesktop = (state: AgentState) =>
+  state.executionStatus === 'connecting';
 export const selectVncUrl = (state: AgentState) => state.vncUrl;
 export const selectSelectedModelId = (state: AgentState) => state.selectedModelId;
 export const selectAvailableModels = (state: AgentState) => state.availableModels;
@@ -347,7 +334,6 @@ export const selectIsDarkMode = (state: AgentState) => state.isDarkMode;
 export const selectSelectedStepIndex = (state: AgentState) => state.selectedStepIndex;
 export const selectFinalStep = (state: AgentState) => state.finalStep;
 
-// Composite selector for selected step (avoids infinite loops)
 export const selectSelectedStep = (state: AgentState) => {
   const steps = state.trace?.steps;
   const selectedIndex = state.selectedStepIndex;

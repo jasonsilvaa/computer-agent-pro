@@ -2,10 +2,12 @@
 
 ## Overview
 
-`computer-agent-pro` is a local-first fork of the original `smolagents/computer-use-agent`.
-It preserves the same high-level idea, but replaces mandatory cloud dependencies with a local runtime built on Ollama, a desktop container, and a React frontend.
+`computer-agent-pro` is a fork of `smolagents/computer-use-agent` with two explicit runtime modes:
 
-The project is composed of 3 runtime services plus supporting scripts:
+- `APP_MODE=original`: the canonical, upstream-aligned path using Hugging Face inference and E2B sandboxes
+- `APP_MODE=local`: an optional local extension using Ollama plus the bundled desktop container
+
+The repository still contains 3 runtime services plus supporting scripts, but only the local mode requires all three:
 
 1. `cua2`
    Main application container. Hosts the FastAPI backend, serves the built React frontend through Nginx, manages WebSocket communication, and coordinates task execution.
@@ -22,10 +24,11 @@ Browser UI
   └─ WebSocket -> FastAPI backend
                     ├─ AgentService
                     ├─ WebSocketManager
-                    ├─ LocalSandboxService / SandboxService
+                    ├─ App mode selector
+                    ├─ SandboxService / LocalSandboxService
                     └─ smolagents CodeAgent
-                              ├─ Ollama model
-                              └─ Desktop API
+                              ├─ Hugging Face model or Ollama model
+                              └─ E2B desktop or Desktop API
                                         ├─ Firefox
                                         ├─ pyautogui
                                         ├─ mss screenshots
@@ -172,10 +175,12 @@ Main files:
 `cua2-core/src/cua2_core/app.py` is the composition root:
 
 - loads environment variables
+- reads `APP_MODE`
 - creates `WebSocketManager`
-- selects sandbox mode:
-  - `LocalSandboxService` when `E2B_API_KEY` is not set
-  - `SandboxService` when cloud mode is enabled
+- selects sandbox mode explicitly:
+  - `SandboxService` when `APP_MODE=original`
+  - `LocalSandboxService` when `APP_MODE=local`
+- requires `HF_TOKEN` and `E2B_API_KEY` when `APP_MODE=original`
 - creates `AgentService`
 - attaches services to `app.state`
 
@@ -186,8 +191,8 @@ Main files:
 Owns the live execution channel:
 
 - accepts WebSocket connections
-- emits the initial heartbeat UUID
-- receives:
+- emits the initial `heartbeat` with `traceId`
+- receives normalized task events:
   - `user_task`
   - `stop_task`
 - delegates task processing to `AgentService`
@@ -213,6 +218,7 @@ This is the main orchestration engine. It is responsible for:
 - maintaining current screenshots
 - sending progress events
 - handling cleanup and archival
+- treating `agent_complete` as the final state authority
 
 Internal responsibilities:
 
@@ -245,7 +251,7 @@ Defines `E2BVisionAgent`, a `smolagents.CodeAgent` subclass that:
 - injects the system prompt
 - normalizes coordinates
 - registers desktop tools
-- captures tool logs for the frontend
+- emits stable tool logs for the frontend instead of forwarding raw `smolagents` logger objects
 
 Registered tools:
 
@@ -266,13 +272,15 @@ Registered tools:
 
 #### `services/agent_utils/get_model.py`
 
-Chooses execution mode:
+Chooses execution mode from `APP_MODE`:
 
-- local mode:
+- `original`:
+  - uses `InferenceClientModel`
+  - exposes the Hugging Face model list
+- `local`:
   - uses `LiteLLMModel`
   - points to `OLLAMA_BASE_URL`
-- cloud mode:
-  - uses `InferenceClientModel`
+  - exposes the Ollama model list
 
 Default local models:
 
@@ -285,7 +293,7 @@ Default local models:
 
 #### `services/local_sandbox_service.py`
 
-Local implementation used when no API keys are configured:
+Local implementation used only when `APP_MODE=local`:
 
 - provides a shared local desktop
 - keeps sandbox lifecycle simple
@@ -303,7 +311,7 @@ Adapter that translates agent actions into Desktop API calls:
 
 #### `services/sandbox_service.py`
 
-Cloud sandbox implementation preserved for optional E2B mode.
+Cloud sandbox implementation used when `APP_MODE=original`.
 
 ### WebSocket event layer
 
@@ -319,6 +327,8 @@ Serializes and emits frontend events:
 - `vnc_url_set`
 - `vnc_url_unset`
 - `heartbeat`
+
+The WebSocket contract is now normalized around `type` and `traceId`, avoiding the previous mix of `event_type`, `trace_id`, and `uuid`.
 
 ### Data models
 
@@ -347,7 +357,7 @@ Archival support remains in the project:
 
 - `services/archival_service.py`
 
-In local mode this is mostly passive unless cloud archival is configured.
+In `local` mode this is mostly passive unless cloud archival is configured.
 
 ## Frontend Architecture
 

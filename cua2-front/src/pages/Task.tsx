@@ -1,5 +1,6 @@
 import { ExecutionLog, Header, SandboxViewer, StepsList, Timeline } from '@/components';
 import {
+  selectExecutionStatus,
   selectFinalStep,
   selectIsAgentProcessing,
   selectIsConnectingToDesktop,
@@ -9,15 +10,18 @@ import {
   selectVncUrl,
   useAgentStore,
 } from '@/stores/agentStore';
-import { Box } from '@mui/material';
-import { useEffect } from 'react';
+import { Box, Button, Typography } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 
-const Task = () => {
+interface TaskProps {
+  stopCurrentTask: () => void;
+}
+
+const Task = ({ stopCurrentTask }: TaskProps) => {
   const navigate = useNavigate();
 
-  // Get state from Zustand store
   const trace = useAgentStore(selectTrace);
+  const executionStatus = useAgentStore(selectExecutionStatus);
   const executionLogs = useAgentStore((state) => state.executionLogs);
   const isAgentProcessing = useAgentStore(selectIsAgentProcessing);
   const isConnectingToDesktop = useAgentStore(selectIsConnectingToDesktop);
@@ -27,39 +31,29 @@ const Task = () => {
   const finalStep = useAgentStore(selectFinalStep);
   const error = useAgentStore((state) => state.error);
 
-  // Redirect to home if no trace (allow brief moment for store to update)
-  useEffect(() => {
-    if (!trace) {
-      const t = setTimeout(() => {
-        if (!useAgentStore.getState().trace) {
-          navigate('/', { replace: true });
-        }
-      }, 200);
-      return () => clearTimeout(t);
-    }
-  }, [trace, navigate]);
-
-  // Handler for going back to home
   const handleBackToHome = () => {
-    // Stop the current task if it's running
-    const stopTask = (window as Window & { __stopCurrentTask?: () => void }).__stopCurrentTask;
-    if (stopTask) {
-      stopTask();
+    if (isAgentProcessing) {
+      stopCurrentTask();
     }
-
-    // Reset frontend state
     useAgentStore.getState().resetAgent();
-
-    // Reload the page to reconnect websocket
-    window.location.href = '/';
+    navigate('/');
   };
 
-  // Show loading or redirect if no trace
   if (!trace) {
     return (
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', backgroundColor: 'background.default' }}>
-        <Box sx={{ textAlign: 'center', color: 'text.secondary' }}>
-          Carregando tarefa...
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', backgroundColor: 'background.default', p: 3 }}>
+        <Box sx={{ textAlign: 'center', color: 'text.secondary', maxWidth: 480 }}>
+          <Typography variant="h6" sx={{ mb: 1, color: 'text.primary' }}>
+            {executionStatus === 'connecting' ? 'Iniciando tarefa...' : 'Nenhuma tarefa ativa'}
+          </Typography>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            {executionStatus === 'connecting'
+              ? 'Aguardando a confirmação inicial do backend.'
+              : 'Abra uma nova tarefa na tela inicial para acompanhar a execução aqui.'}
+          </Typography>
+          <Button variant="contained" onClick={() => navigate('/')}>
+            Voltar ao início
+          </Button>
         </Box>
       </Box>
     );
@@ -78,6 +72,7 @@ const Task = () => {
       {/* Header */}
       <Header
         isAgentProcessing={isAgentProcessing}
+        onStopTask={stopCurrentTask}
         onBackToHome={handleBackToHome}
       />
 

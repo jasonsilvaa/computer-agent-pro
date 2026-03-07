@@ -13,8 +13,8 @@ SANDBOX_CREATION_THREAD_TIMEOUT = (
     300  # Timeout for sandbox creation thread to prevent hanging
 )
 SANDBOX_KILL_TIMEOUT = 30  # Timeout for sandbox.kill() to prevent hanging
-WIDTH = 1280
-HEIGHT = 960
+WIDTH = int(os.getenv("DESKTOP_WIDTH", "1280"))
+HEIGHT = int(os.getenv("DESKTOP_HEIGHT", "720"))
 
 
 class SandboxResponse(BaseModel):

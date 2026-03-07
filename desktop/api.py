@@ -5,7 +5,9 @@ Runs inside Xvfb (DISPLAY=:99) with pyautogui.
 
 import io
 import os
+import socket
 import subprocess
+import time
 import unicodedata
 
 from flask import Flask, jsonify, request
@@ -41,14 +43,88 @@ def _ascii_sanitize(text: str) -> str:
     )
 
 
-@app.route("/screenshot", methods=["GET"])
-def screenshot():
+def _capture_pil_image():
     sct = _get_mss()
     with sct.mss() as m:
         mon = m.monitors[0]
         img = m.grab(mon)
     from PIL import Image
-    im = Image.frombytes("RGB", img.size, img.bgra, "raw", "BGRX")
+    return Image.frombytes("RGB", img.size, img.bgra, "raw", "BGRX")
+
+
+def _is_process_running(pattern: str) -> bool:
+    return (
+        subprocess.run(
+            ["pgrep", "-f", pattern],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode
+        == 0
+    )
+
+
+def _is_port_open(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.5)
+        return sock.connect_ex((host, port)) == 0
+
+
+def _get_desktop_health() -> dict:
+    screenshot_error = None
+    dark_ratio = 1.0
+    screen_size = None
+    try:
+        image = _capture_pil_image()
+        screen_size = [image.width, image.height]
+        grayscale = image.convert("L")
+        histogram = grayscale.histogram()
+        dark_pixels = sum(histogram[:8])
+        total_pixels = grayscale.width * grayscale.height or 1
+        dark_ratio = dark_pixels / total_pixels
+    except Exception as exc:
+        screenshot_error = str(exc)
+
+    xfce_running = any(
+        _is_process_running(pattern)
+        for pattern in ("xfce4-session", "xfwm4", "xfdesktop")
+    )
+    x11vnc_running = _is_process_running("x11vnc")
+    websockify_running = _is_process_running("websockify")
+    vnc_port_open = _is_port_open("127.0.0.1", 5900)
+    novnc_port_open = _is_port_open("127.0.0.1", 6080)
+    ready = (
+        screenshot_error is None
+        and xfce_running
+        and x11vnc_running
+        and websockify_running
+        and vnc_port_open
+        and novnc_port_open
+        and dark_ratio < 0.98
+    )
+    return {
+        "display": os.environ.get("DISPLAY", ":99"),
+        "xfce_running": xfce_running,
+        "x11vnc_running": x11vnc_running,
+        "websockify_running": websockify_running,
+        "vnc_port_open": vnc_port_open,
+        "novnc_port_open": novnc_port_open,
+        "screen_size": screen_size,
+        "dark_ratio": dark_ratio,
+        "screenshot_error": screenshot_error,
+        "ready": ready,
+    }
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    status = _get_desktop_health()
+    return jsonify(status), 200 if status["ready"] else 503
+
+
+@app.route("/screenshot", methods=["GET"])
+def screenshot():
+    im = _capture_pil_image()
     buf = io.BytesIO()
     im.save(buf, format="PNG")
     return buf.getvalue(), 200, {"Content-Type": "image/png"}
@@ -59,7 +135,7 @@ def mouse_move():
     pa = _get_pyautogui()
     data = request.get_json() or {}
     x, y = int(data.get("x", 0)), int(data.get("y", 0))
-    pa.moveTo(x, y)
+    pa.moveTo(x, y, duration=0.05)
     return jsonify({"ok": True})
 
 
@@ -110,7 +186,7 @@ def keyboard_type():
     pa = _get_pyautogui()
     data = request.get_json() or {}
     text = _ascii_sanitize(str(data.get("text", "")))
-    pa.write(text, interval=0.075)
+    pa.write(text, interval=0.03)
     return jsonify({"ok": True})
 
 
@@ -130,17 +206,35 @@ def keyboard_press():
 def open_browser():
     data = request.get_json() or {}
     url = data.get("url", "https://google.com")
+    browser = str(data.get("browser", "chromium")).lower()
     if not url.startswith("http"):
         url = f"https://{url}"
     env = os.environ.copy()
     env["DISPLAY"] = ":99"
-    subprocess.Popen(
-        ["firefox", url],
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    return jsonify({"ok": True})
+    try:
+        if browser == "chromium":
+            subprocess.Popen(
+                ["python", "-m", "playwright", "open", "--browser", "chromium", url],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        else:
+            subprocess.Popen(
+                ["firefox", "--new-window", url],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    except Exception:
+        subprocess.Popen(
+            ["firefox", "--new-window", url],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    time.sleep(1.5)
+    return jsonify({"ok": True, "url": url, "browser": browser})
 
 
 @app.route("/run_command", methods=["POST"])

@@ -4,6 +4,7 @@ import fcntl
 import json
 import logging
 import os
+import re
 import time
 from io import BytesIO
 from typing import IO, Callable, Literal
@@ -119,6 +120,33 @@ class AgentService:
             # Create a snapshot of active task IDs (should be called with lock held)
             active_task_ids = set(self.active_tasks.keys())
             self.archival_service.update_active_tasks(active_task_ids)
+
+    def _is_image_mostly_black(self, image: Image.Image) -> bool:
+        grayscale = image.convert("L")
+        histogram = grayscale.histogram()
+        dark_pixels = sum(histogram[:8])
+        total_pixels = grayscale.width * grayscale.height or 1
+        return (dark_pixels / total_pixels) > 0.98
+
+    def _capture_ready_screenshot(
+        self, desktop: Sandbox, message_id: str, retries: int = 8, delay: float = 1.0
+    ) -> Image.Image:
+        last_image: Image.Image | None = None
+        for attempt in range(1, retries + 1):
+            screenshot_bytes = desktop.screenshot()
+            image = Image.open(BytesIO(screenshot_bytes)).convert("RGB")
+            image.load()
+            last_image = image
+            if not self._is_image_mostly_black(image):
+                return image
+            logger.warning(
+                f"Screenshot still black for {message_id} on attempt {attempt}/{retries}"
+            )
+            time.sleep(delay)
+
+        raise RuntimeError(
+            f"Desktop screenshot remained black for task {message_id} after {retries} attempts"
+        )
 
     async def create_id_and_sandbox(self, websocket: WebSocket) -> str:
         """Create a new ID and sandbox"""
@@ -325,8 +353,7 @@ class AgentService:
             novnc_active = True
 
             step_filename = f"{message_id}-1"
-            screenshot_bytes = agent.desktop.screenshot()
-            image = Image.open(BytesIO(screenshot_bytes))
+            image = self._capture_ready_screenshot(agent.desktop, message_id)
             self.last_screenshot[message_id] = (image, step_filename)
 
             try:
@@ -372,32 +399,31 @@ class AgentService:
                 and websocket.client_state == WebSocketState.CONNECTED
             ):
                 await self.websocket_manager.send_agent_error(
-                    error="Error processing task", websocket=websocket
+                    error=f"Error processing task: {str(traceback.format_exc().splitlines()[-1])}",
+                    websocket=websocket,
                 )
 
         finally:
-            # Send completion event
-            # Check if websocket is still connected before sending
+            await self.active_tasks[message_id].update_trace_metadata(
+                final_state=final_state,
+                completed=True,
+            )
+
             if (
                 not websocket_exception
                 and websocket
                 and websocket.client_state == WebSocketState.CONNECTED
             ):
+                if novnc_active:
+                    await self.websocket_manager.send_vnc_url_unset(websocket=websocket)
+
                 await self.websocket_manager.send_agent_complete(
                     metadata=self.active_tasks[message_id].traceMetadata,
                     websocket=websocket,
                     final_state=final_state,
                 )
 
-                if novnc_active:
-                    await self.websocket_manager.send_vnc_url_unset(websocket=websocket)
-
             novnc_active = False
-
-            await self.active_tasks[message_id].update_trace_metadata(
-                final_state=final_state,
-                completed=True,
-            )
 
             if message_id in self.active_tasks:
                 await self.active_tasks[message_id].save_to_file()
@@ -446,7 +472,12 @@ class AgentService:
             tool_logs: list[str] = []
 
             def log_callback(msg: str):
-                tool_logs.append(msg)
+                cleaned = " ".join(str(msg).split())
+                if not cleaned:
+                    return
+                if tool_logs and tool_logs[-1] == cleaned:
+                    return
+                tool_logs.append(cleaned)
 
             def step_callback(memory_step: ActionStep, agent: E2BVisionAgent):
                 active_task = self.active_tasks.get(message_id)
@@ -466,28 +497,62 @@ class AgentService:
                 if isinstance(memory_step.error, AgentMaxStepsError):
                     model_output = memory_step.action_output
 
-                thought = (
-                    model_output.split("```")[0].replace("\nAction:\n", "")
-                    if model_output
-                    and (
-                        memory_step.error is None
-                        or isinstance(memory_step.error, AgentMaxStepsError)
-                    )
-                    else None
-                )
+                raw_model_output = str(model_output).strip() if model_output else ""
+                thought = None
+                action_sequence = ""
 
-                if model_output is not None:
-                    action_sequence = model_output.split("```")[1]
-                else:
-                    action_sequence = """The task failed due to an error"""  # TODO: To Handle in front
+                if raw_model_output and (
+                    memory_step.error is None
+                    or isinstance(memory_step.error, AgentMaxStepsError)
+                ):
+                    fenced_match = re.search(
+                        r"```(?:[a-zA-Z0-9_+-]+)?\n?(.*?)```",
+                        raw_model_output,
+                        re.DOTALL,
+                    )
+                    if fenced_match:
+                        thought = (
+                            raw_model_output[: fenced_match.start()]
+                            .replace("\nAction:\n", "")
+                            .strip()
+                            or None
+                        )
+                        action_sequence = fenced_match.group(1).strip()
+                    else:
+                        # Fallback for local models that sometimes return plain text
+                        # function calls without fenced code blocks.
+                        thought = raw_model_output.replace("\nAction:\n", "").strip() or None
+                        action_sequence = raw_model_output
+
+                parsed_calls = (
+                    parse_function_call(action_sequence) if action_sequence else []
+                )
+                if not parsed_calls and raw_model_output and raw_model_output != action_sequence:
+                    parsed_calls = parse_function_call(raw_model_output)
+
+                if not parsed_calls and raw_model_output:
+                    log_callback(
+                        "Modelo respondeu fora do formato esperado de ferramenta. "
+                        f"Saida recebida: {raw_model_output[:300]}"
+                    )
 
                 agent_actions = (
-                    AgentAction.from_function_calls(
-                        parse_function_call(action_sequence)
-                    )
-                    if action_sequence
+                    AgentAction.from_function_calls(parsed_calls)
+                    if parsed_calls
                     else None
                 )
+
+                step_summary = None
+                if memory_step.timing is not None:
+                    primary_action = (
+                        agent_actions[0].description
+                        if agent_actions and len(agent_actions) > 0
+                        else "sem ação identificada"
+                    )
+                    step_summary = (
+                        f"Etapa {memory_step.step_number} concluída em "
+                        f"{memory_step.timing.duration:.1f}s: {primary_action}"
+                    )
 
                 # Brief pause for UI to update (reduced from 3s for faster execution)
                 time.sleep(0.5)
@@ -497,7 +562,9 @@ class AgentService:
                 if websocket_for_logs and websocket_for_logs.client_state == WebSocketState.CONNECTED:
                     for log_msg in tool_logs:
                         future_log = asyncio.run_coroutine_threadsafe(
-                            self.websocket_manager.send_agent_log(log_msg, websocket_for_logs),
+                            self.websocket_manager.send_agent_log(
+                                message_id, log_msg, websocket_for_logs
+                            ),
                             loop,
                         )
                         future_log.result()
@@ -551,6 +618,8 @@ class AgentService:
                     future2.result()
 
                     websocket = self.task_websockets.get(message_id)
+                    if step_summary:
+                        tool_logs.append(step_summary)
                     if websocket and websocket.client_state == WebSocketState.CONNECTED:
                         future = asyncio.run_coroutine_threadsafe(
                             self.websocket_manager.send_agent_progress(

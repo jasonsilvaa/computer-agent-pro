@@ -55,7 +55,7 @@ export const exportTraceToJson = (
       message: finalStep.message || null,
       finalAnswer: extractFinalAnswer(steps),
     } : null,
-    metadata: metadata || trace.traceMetadata,
+    metadata: finalStep?.metadata || metadata || trace.traceMetadata,
     steps: steps.map((step) => ({
       traceId: step.traceId,
       stepId: step.stepId,

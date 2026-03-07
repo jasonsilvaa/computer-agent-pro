@@ -6,13 +6,14 @@ Used when E2B_API_KEY is not set (fully local mode).
 import os
 import time
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
 DESKTOP_API_URL = os.getenv("DESKTOP_API_URL", "http://desktop:5000")
 VNC_URL = os.getenv("VNC_URL", "http://localhost:6080/vnc.html")
-WIDTH = 1280
-HEIGHT = 960
+WIDTH = int(os.getenv("DESKTOP_WIDTH", "1280"))
+HEIGHT = int(os.getenv("DESKTOP_HEIGHT", "720"))
 
 
 class LocalStream:
@@ -25,7 +26,16 @@ class LocalStream:
         resize: str = "scale",
         auth_key: str | None = None,
     ) -> str:
-        return VNC_URL
+        parts = urlsplit(VNC_URL)
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        query["autoconnect"] = "true" if auto_connect else "false"
+        query["resize"] = resize
+        query["view_only"] = "true" if view_only else "false"
+        if auth_key is not None:
+            query["password"] = auth_key
+        return urlunsplit(
+            (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
+        )
 
     def get_auth_key(self) -> str:
         return ""
@@ -60,6 +70,12 @@ class LocalDesktop:
 
     def get_screen_size(self) -> tuple[int, int]:
         return (WIDTH, HEIGHT)
+
+    def health(self) -> dict[str, Any]:
+        with httpx.Client(timeout=10) as client:
+            r = client.get(f"{self._api_url}/health")
+            r.raise_for_status()
+            return r.json()
 
     def screenshot(self) -> bytes:
         with httpx.Client(timeout=30) as client:
@@ -125,7 +141,7 @@ class LocalDesktop:
         with httpx.Client(timeout=30) as client:
             client.post(
                 f"{self._api_url}/open_browser",
-                json={"url": url},
+                json={"url": url, "browser": "chromium"},
             ).raise_for_status()
 
     def kill(self) -> None:

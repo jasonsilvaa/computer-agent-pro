@@ -1,6 +1,6 @@
 import { useGifGenerator } from '@/hooks/useGifGenerator';
 import { useJsonExporter } from '@/hooks/useJsonExporter';
-import { selectError, selectFinalStep, selectSteps, selectTrace, useAgentStore } from '@/stores/agentStore';
+import { selectExecutionStatus, selectFinalStep, selectSteps, selectTrace, useAgentStore } from '@/stores/agentStore';
 import { AgentStep, AgentTraceMetadata } from '@/types/agent';
 import ImageIcon from '@mui/icons-material/Image';
 import MonitorIcon from '@mui/icons-material/Monitor';
@@ -40,11 +40,10 @@ export const SandboxViewer: React.FC<SandboxViewerProps> = ({
   isRunning = false
 }) => {
   const navigate = useNavigate();
-  const error = useAgentStore(selectError);
   const finalStep = useAgentStore(selectFinalStep);
+  const executionStatus = useAgentStore(selectExecutionStatus);
   const steps = useAgentStore(selectSteps);
   const trace = useAgentStore(selectTrace);
-  const resetAgent = useAgentStore((state) => state.resetAgent);
   const setSelectedStepIndex = useAgentStore((state) => state.setSelectedStepIndex);
 
   // Hook to generate GIF
@@ -63,9 +62,7 @@ export const SandboxViewer: React.FC<SandboxViewerProps> = ({
 
   // Extract final_answer from the last step, or fallback to last thought
   const getFinalAnswer = (): string | null => {
-    console.log('🔍 getFinalAnswer - steps:', steps);
     if (!steps || steps.length === 0) {
-      console.log('❌ No steps available');
       return null;
     }
 
@@ -79,42 +76,34 @@ export const SandboxViewer: React.FC<SandboxViewerProps> = ({
         );
 
         if (finalAnswerAction) {
-          // Handle both named parameter and positional argument
-          const result = finalAnswerAction?.parameters?.answer || finalAnswerAction?.parameters?.arg_0 || null;
-          console.log('✅ Final answer found in step', i + 1, ':', result);
+          const result =
+            (finalAnswerAction.parameters as Record<string, string | undefined>).answer ||
+            (finalAnswerAction.parameters as Record<string, string | undefined>).arg_0 ||
+            null;
           return result;
         }
       }
     }
 
-    console.log('🔍 No final_answer found, looking for last thought...');
-
     // Fallback: find the last step with a thought (iterate backwards)
     for (let i = steps.length - 1; i >= 0; i--) {
       const step = steps[i];
       if (step.thought) {
-        console.log('📝 Using thought from step', i + 1, 'as fallback:', step.thought);
         return step.thought;
       }
     }
-
-    console.log('❌ No final answer or thought found in any step');
     return null;
   };
 
   const finalAnswer = getFinalAnswer();
-  console.log('🎯 Final answer to display:', finalAnswer);
 
   // Determine if we should show success/fail status
   const showStatus = !isRunning && !selectedStep && finalStep;
 
   // Handler to go back to home
   const handleBackToHome = () => {
-    // Reset frontend state
     useAgentStore.getState().resetAgent();
-
-    // Reload the page to reconnect websocket
-    window.location.href = '/';
+    navigate('/');
   };
 
   // Handler to go back to live mode
@@ -129,6 +118,8 @@ export const SandboxViewer: React.FC<SandboxViewerProps> = ({
         display: 'flex',
         flexDirection: 'column',
         position: 'relative',
+        minHeight: { xs: 320, md: 420 },
+        aspectRatio: '16 / 9',
         border: '1px solid',
         borderColor: showStatus
           ? ((finalStep?.type === 'failure' || finalStep?.type === 'sandbox_timeout') ? 'error.main' : 'success.main')
@@ -336,10 +327,10 @@ export const SandboxViewer: React.FC<SandboxViewerProps> = ({
               }}
             />
             <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5, fontSize: '0.875rem', color: 'text.primary' }}>
-              Connecting to desktop...
+              {executionStatus === 'stopping' ? 'Finalizing task...' : 'Connecting to desktop...'}
             </Typography>
             <Typography variant="caption" sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>
-              Setting up sandbox environment
+              {executionStatus === 'stopping' ? 'Waiting for the backend to finish cleanup' : 'Setting up sandbox environment'}
             </Typography>
           </Box>
         ) : (

@@ -31,9 +31,30 @@ class LocalSandboxService:
         return self._desktop
 
     async def acquire_sandbox(self, session_hash: str) -> SandboxResponse:
-        """Return shared local desktop immediately."""
+        """Return shared local desktop once the desktop service is really ready."""
+        desktop = self._get_desktop()
+        try:
+            status = desktop.health()
+        except Exception as exc:
+            return SandboxResponse(
+                sandbox=None,
+                state="creating",
+                error=f"Desktop healthcheck failed: {exc}",
+            )
+
+        if not status.get("ready"):
+            reason = (
+                f"Desktop not ready yet "
+                f"(xfce_running={status.get('xfce_running')}, dark_ratio={status.get('dark_ratio')})"
+            )
+            return SandboxResponse(
+                sandbox=None,
+                state="creating",
+                error=reason,
+            )
+
         return SandboxResponse(
-            sandbox=self._get_desktop(),
+            sandbox=desktop,
             state="ready",
         )
 

@@ -1,6 +1,4 @@
 import {
-  AgentAction,
-  AgentStep,
   AgentTrace,
   AgentTraceMetadata,
   FinalStep,
@@ -21,23 +19,30 @@ export type LogEntryType =
   | 'start'
   | 'connecting'
   | 'execution'
-  | 'step'
-  | 'thought'
-  | 'action'
   | 'complete'
   | 'error';
 
 export interface LogEntry {
   id: string;
   type: LogEntryType;
-  stepNumber?: number;
   message: string;
-  thought?: string;
-  actions?: AgentAction[];
-  duration?: number;
-  inputTokens?: number;
-  outputTokens?: number;
   timestamp: number;
+  stepNumber?: number;
+  stepDuration?: number;
+  totalDuration?: number;
+}
+
+function parseExecutionMessage(message: string): Pick<LogEntry, 'message' | 'stepNumber' | 'stepDuration'> {
+  const match = message.match(/^Etapa\s+(\d+)\s+concluída\s+em\s+([\d.]+)s:\s*(.+)$/i);
+  if (!match) {
+    return { message };
+  }
+
+  return {
+    stepNumber: Number(match[1]),
+    stepDuration: Number(match[2]),
+    message: match[3],
+  };
 }
 
 function buildLogEntries(
@@ -50,15 +55,14 @@ function buildLogEntries(
 ): LogEntry[] {
   const entries: LogEntry[] = [];
   const ts = trace?.timestamp ? new Date(trace.timestamp).getTime() : Date.now();
-
-  if (!trace) return entries;
-
-  entries.push({
-    id: 'start',
-    type: 'start',
-    message: `Tarefa iniciada: "${trace.instruction}"`,
-    timestamp: ts,
-  });
+  if (trace) {
+    entries.push({
+      id: 'start',
+      type: 'start',
+      message: `Tarefa iniciada: "${trace.instruction}"`,
+      timestamp: ts,
+    });
+  }
 
   if (isConnectingToDesktop && isAgentProcessing) {
     entries.push({
@@ -69,48 +73,19 @@ function buildLogEntries(
     });
   }
 
-  // Tool execution prints (from backend agent_log)
   executionLogs.forEach((msg, i) => {
+    const parsed = parseExecutionMessage(msg);
     entries.push({
       id: `exec-${i}`,
       type: 'execution',
-      message: msg,
+      message: parsed.message,
+      stepNumber: parsed.stepNumber,
+      stepDuration: parsed.stepDuration,
       timestamp: ts + i,
     });
   });
 
-  const steps = trace.steps || [];
-  steps.forEach((step: AgentStep, index: number) => {
-    const stepNum = index + 1;
-
-    if (step.thought && step.thought.trim()) {
-      entries.push({
-        id: `thought-${step.stepId}`,
-        type: 'thought',
-        stepNumber: stepNum,
-        message: step.thought,
-        thought: step.thought,
-        timestamp: ts + (step.duration || 0) * 1000,
-      });
-    }
-
-    const actionMsgs =
-      step.actions?.map((a) => a.description).join('; ') ||
-      `Passo ${stepNum} concluído`;
-    entries.push({
-      id: `step-${step.stepId}`,
-      type: step.actions?.length ? 'action' : 'step',
-      stepNumber: stepNum,
-      message: actionMsgs,
-      actions: step.actions,
-      duration: step.duration,
-      inputTokens: step.inputTokensUsed,
-      outputTokens: step.outputTokensUsed,
-      timestamp: ts,
-    });
-  });
-
-  if (error) {
+  if (error && !finalStep) {
     entries.push({
       id: 'error',
       type: 'error',
@@ -153,6 +128,7 @@ interface ExecutionLogProps {
 
 export const ExecutionLog: React.FC<ExecutionLogProps> = ({
   trace,
+  metadata,
   executionLogs,
   isConnectingToDesktop,
   isAgentProcessing,
@@ -186,11 +162,6 @@ export const ExecutionLog: React.FC<ExecutionLogProps> = ({
         return theme.palette.info.main;
       case 'execution':
         return theme.palette.success.main;
-      case 'thought':
-        return theme.palette.text.secondary;
-      case 'action':
-      case 'step':
-        return theme.palette.success.main;
       case 'complete':
         return theme.palette.success.main;
       case 'error':
@@ -208,11 +179,6 @@ export const ExecutionLog: React.FC<ExecutionLogProps> = ({
         return '…';
       case 'execution':
         return '▸';
-      case 'thought':
-        return '💭';
-      case 'action':
-      case 'step':
-        return '→';
       case 'complete':
         return '✓';
       case 'error':
@@ -222,7 +188,7 @@ export const ExecutionLog: React.FC<ExecutionLogProps> = ({
     }
   };
 
-  if (!trace) return null;
+  if (!trace && entries.length === 0) return null;
 
   return (
     <Paper
@@ -328,57 +294,59 @@ export const ExecutionLog: React.FC<ExecutionLogProps> = ({
                     {getEntryPrefix(entry.type)}
                   </Typography>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
-                    {entry.stepNumber && (
-                      <Typography
-                        component="span"
-                        sx={{
-                          color: 'text.disabled',
-                          fontWeight: 600,
-                          mr: 1,
-                        }}
-                      >
-                        [Passo {entry.stepNumber}]
-                      </Typography>
-                    )}
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                        gap: 0.75,
+                        mb: 0.25,
+                      }}
+                    >
+                      {entry.stepNumber !== undefined && (
+                        <Box
+                          sx={{
+                            px: 0.75,
+                            py: 0.1,
+                            borderRadius: 1,
+                            backgroundColor: theme.palette.mode === 'dark' ? '#1f2937' : '#e5e7eb',
+                            color: 'text.secondary',
+                            fontSize: '0.68rem',
+                            fontWeight: 700,
+                          }}
+                        >
+                          ETAPA {entry.stepNumber}
+                        </Box>
+                      )}
+                      {entry.stepDuration !== undefined && (
+                        <Typography
+                          component="span"
+                          sx={{ color: 'text.secondary', fontSize: '0.68rem', fontWeight: 700 }}
+                        >
+                          {entry.stepDuration.toFixed(1)}s
+                        </Typography>
+                      )}
+                      {metadata?.duration !== undefined && entry.type === 'execution' && (
+                        <Typography
+                          component="span"
+                          sx={{ color: 'text.disabled', fontSize: '0.68rem' }}
+                        >
+                          total {metadata.duration.toFixed(1)}s
+                        </Typography>
+                      )}
+                    </Box>
                     <Typography
-                      component="span"
+                      component="div"
                       sx={{
                         color: 'text.primary',
                         wordBreak: 'break-word',
+                        whiteSpace: 'pre-wrap',
                       }}
                     >
                       {entry.message}
                     </Typography>
-                    {entry.duration !== undefined && entry.duration > 0 && (
-                      <Typography
-                        component="span"
-                        sx={{
-                          color: 'text.disabled',
-                          fontSize: '0.7rem',
-                          ml: 1,
-                        }}
-                      >
-                        ({entry.duration.toFixed(1)}s
-                        {entry.inputTokens !== undefined &&
-                          ` • ${entry.inputTokens} in / ${entry.outputTokens} out`}
-                        )
-                      </Typography>
-                    )}
                   </Box>
                 </Box>
-                {entry.thought && entry.type === 'thought' && (
-                  <Box
-                    sx={{
-                      pl: 3,
-                      borderLeft: '2px solid',
-                      borderColor: 'divider',
-                      color: 'text.secondary',
-                      fontStyle: 'italic',
-                    }}
-                  >
-                    {entry.thought}
-                  </Box>
-                )}
               </Box>
             ))
           )}

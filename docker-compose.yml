@@ -4,12 +4,15 @@ services:
     ports:
       - "7860:7860"
     environment:
+      - APP_MODE=local
       - DESKTOP_API_URL=http://desktop:5000
       - OLLAMA_BASE_URL=http://ollama:11434
       - VNC_URL=http://localhost:6080/vnc.html
+      - DESKTOP_WIDTH=1280
+      - DESKTOP_HEIGHT=720
     depends_on:
       desktop:
-        condition: service_started
+        condition: service_healthy
       ollama:
         condition: service_healthy
 
@@ -18,6 +21,15 @@ services:
     ports:
       - "5000:5000"
       - "6080:6080"
+    environment:
+      - DESKTOP_WIDTH=1280
+      - DESKTOP_HEIGHT=720
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:5000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
 
   ollama:
     build: ./ollama

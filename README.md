@@ -2,17 +2,20 @@
 
 An AI-powered automation interface featuring real-time agent task processing, VNC streaming, and step-by-step execution visualization.
 
-Based on [smolagents/computer-use-agent](https://huggingface.co/spaces/smolagents/computer-use-agent), this fork runs **fully locally** without `HF_TOKEN` or `E2B_API_KEY` — using Ollama and a local desktop sandbox instead.
+Based on [smolagents/computer-use-agent](https://huggingface.co/spaces/smolagents/computer-use-agent), this fork now supports two explicit runtime modes:
+
+- `APP_MODE=original`: closest to the upstream architecture, using Hugging Face inference plus E2B sandboxes
+- `APP_MODE=local`: local desktop automation with Ollama and the bundled `desktop` container
 
 ---
 
 ## Features
 
-- **Local-first**: No API keys required — runs entirely on your machine
-- **Ollama integration**: Uses vision-language models (llava, qwen3-vl) via Ollama
-- **VNC desktop**: Real-time view of the agent's virtual desktop
-- **Cloud mode (optional)**: Set `HF_TOKEN` and `E2B_API_KEY` to use HuggingFace + E2B sandboxes
-- **4GB VRAM optimized**: Default models tuned for modest GPUs
+- **Explicit runtime selection**: choose `original` or `local` with `APP_MODE`
+- **Original-compatible path**: supports Hugging Face + E2B as the canonical mode
+- **Local runtime**: uses Ollama plus the bundled desktop container
+- **VNC desktop**: real-time view of the agent's virtual desktop in local mode
+- **4GB VRAM optimized local defaults**: local model list prioritizes `qwen3-vl:2b`
 
 ---
 
@@ -26,18 +29,31 @@ Based on [smolagents/computer-use-agent](https://huggingface.co/spaces/smolagent
 
 ## Quick Start
 
+### Local mode with Docker Compose
+
+`docker-compose.yml` is the local runtime and sets `APP_MODE=local`.
+
 ```bash
-# Clone the repository
 git clone https://github.com/jasonsilvaa/computer-agent-pro.git
 cd computer-agent-pro
-
-# Start all services (CUA2, desktop, Ollama)
 docker compose up --build
 ```
 
-1. **First run**: Models are pulled automatically (llava, llava:7b, qwen3-vl:2b, qwen3-vl:4b). Wait 2–5 minutes.
-2. Open **http://localhost:7860** — the main UI
-3. Open **http://localhost:6080/vnc.html** — VNC desktop (click Connect)
+1. On first run, Ollama pulls the local models automatically. Wait 2-5 minutes.
+2. Open `http://localhost:7860` for the main UI.
+3. Open `http://localhost:6080/vnc.html` to inspect the local desktop stream.
+
+### Original-compatible mode
+
+Create `cua2-core/.env` based on `cua2-core/env.example` and set:
+
+```env
+APP_MODE=original
+HF_TOKEN=your_huggingface_token
+E2B_API_KEY=your_e2b_api_key
+```
+
+In this mode the backend requires both credentials and uses the original cloud-style path instead of the local desktop runtime.
 
 ---
 
@@ -93,20 +109,54 @@ For the full technical architecture, including containers, backend services, fro
 
 ## Configuration
 
-### Local mode (default)
+### Runtime modes
 
-No environment variables needed. Uses Ollama and local desktop.
-
-### Cloud mode (optional)
-
-Create a `.env` file:
+The backend no longer falls back silently based on missing tokens. Set the mode explicitly:
 
 ```env
+APP_MODE=original
+```
+
+or:
+
+```env
+APP_MODE=local
+```
+
+### `APP_MODE=original`
+
+Required:
+
+```env
+APP_MODE=original
 HF_TOKEN=your_huggingface_token
 E2B_API_KEY=your_e2b_api_key
 ```
 
-Then rebuild and run. The app will use HuggingFace Inference and E2B sandboxes instead of local Ollama/desktop.
+Behavior:
+
+- uses Hugging Face inference models
+- uses `SandboxService`
+- matches the upstream runtime more closely
+
+### `APP_MODE=local`
+
+Typical local variables:
+
+```env
+APP_MODE=local
+DESKTOP_API_URL=http://desktop:5000
+OLLAMA_BASE_URL=http://ollama:11434
+VNC_URL=http://localhost:6080/vnc.html
+DESKTOP_WIDTH=1280
+DESKTOP_HEIGHT=720
+```
+
+Behavior:
+
+- uses Ollama multimodal models
+- uses `LocalSandboxService`
+- exposes the local VNC stream
 
 ### GPU support (RTX 3050 4GB)
 
@@ -132,7 +182,7 @@ make dev-backend
 make dev-frontend
 ```
 
-Backend runs on port 8000, frontend on its dev port. For full local testing (desktop + Ollama), use `docker compose up` instead.
+Backend runs on port 8000, frontend on its dev port. For the bundled local runtime (`APP_MODE=local` with desktop + Ollama), use `docker compose up` instead.
 
 ---
 

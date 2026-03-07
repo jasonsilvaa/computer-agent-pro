@@ -61,22 +61,18 @@ class E2BVisionAgent(CodeAgent):
         self.state["screen_width"] = self.width
         self.state["screen_height"] = self.height
 
-        # Wrap logger to capture tool execution logs for frontend
-        if log_callback:
-            _original_log = self.logger.log
-
-            def _log_with_callback(msg: str, *args, **kwargs):
-                _original_log(msg, *args, **kwargs)
-                try:
-                    log_callback(msg)
-                except Exception:
-                    pass
-
-            self.logger.log = _log_with_callback
-
         # Add default tools
-        self.logger.log("Setting up agent tools...")
+        self._emit_ui_log("Setting up agent tools")
         self._setup_desktop_tools()
+
+    def _emit_ui_log(self, message: str):
+        """Send stable, user-facing execution logs to both console and frontend."""
+        self.logger.log(message)
+        if self._log_callback:
+            try:
+                self._log_callback(message)
+            except Exception:
+                pass
 
     def _qwen_unnormalization(self, arguments: dict[str, int]) -> dict[str, int]:
         """
@@ -116,7 +112,7 @@ class E2BVisionAgent(CodeAgent):
             self.desktop.move_mouse(x, y)
             self.desktop.left_click()
             self.click_coordinates = [x, y]
-            self.logger.log(f"Clicked at coordinates ({x}, {y})")
+            self._emit_ui_log(f"Clicked at coordinates ({x}, {y})")
             return f"Clicked at coordinates ({x}, {y})"
 
         @tool
@@ -133,7 +129,7 @@ class E2BVisionAgent(CodeAgent):
             self.desktop.move_mouse(x, y)
             self.desktop.right_click()
             self.click_coordinates = [x, y]
-            self.logger.log(f"Right-clicked at coordinates ({x}, {y})")
+            self._emit_ui_log(f"Right-clicked at coordinates ({x}, {y})")
             return f"Right-clicked at coordinates ({x}, {y})"
 
         @tool
@@ -150,7 +146,7 @@ class E2BVisionAgent(CodeAgent):
             self.desktop.move_mouse(x, y)
             self.desktop.double_click()
             self.click_coordinates = [x, y]
-            self.logger.log(f"Double-clicked at coordinates ({x}, {y})")
+            self._emit_ui_log(f"Double-clicked at coordinates ({x}, {y})")
             return f"Double-clicked at coordinates ({x}, {y})"
 
         @tool
@@ -165,7 +161,7 @@ class E2BVisionAgent(CodeAgent):
                 coords = self._qwen_unnormalization({"x": x, "y": y})
                 x, y = coords["x"], coords["y"]
             self.desktop.move_mouse(x, y)
-            self.logger.log(f"Moved mouse to coordinates ({x}, {y})")
+            self._emit_ui_log(f"Moved mouse to coordinates ({x}, {y})")
             return f"Moved mouse to coordinates ({x}, {y})"
 
         def normalize_text(text):
@@ -184,7 +180,7 @@ class E2BVisionAgent(CodeAgent):
             """
             clean_text = normalize_text(text)
             self.desktop.write(clean_text, delay_in_ms=30)
-            self.logger.log(f"Typed text: '{clean_text}'")
+            self._emit_ui_log(f"Typed text: '{clean_text}'")
             return f"Typed text: '{clean_text}'"
 
         @tool
@@ -195,7 +191,7 @@ class E2BVisionAgent(CodeAgent):
                 keys: The keys to press (e.g. ["enter", "space", "backspace", etc.]).
             """
             self.desktop.press(keys)
-            self.logger.log(f"Pressed keys: {keys}")
+            self._emit_ui_log(f"Pressed keys: {keys}")
             return f"Pressed keys: {keys}"
 
         @tool
@@ -205,7 +201,7 @@ class E2BVisionAgent(CodeAgent):
             Args:
             """
             self.desktop.press(["alt", "left"])
-            self.logger.log("Went back one page")
+            self._emit_ui_log("Went back one page")
             return "Went back one page"
 
         @tool
@@ -225,7 +221,7 @@ class E2BVisionAgent(CodeAgent):
                 x1, y1, x2, y2 = coords["x1"], coords["y1"], coords["x2"], coords["y2"]
             self.desktop.drag([x1, y1], [x2, y2])
             message = f"Dragged and dropped from [{x1}, {y1}] to [{x2}, {y2}]"
-            self.logger.log(message)
+            self._emit_ui_log(message)
             return message
 
         @tool
@@ -244,7 +240,7 @@ class E2BVisionAgent(CodeAgent):
             self.desktop.move_mouse(x, y)
             self.desktop.scroll(direction=direction, amount=amount)
             message = f"Scrolled {direction} by {amount}"
-            self.logger.log(message)
+            self._emit_ui_log(message)
             return message
 
         @tool
@@ -255,7 +251,7 @@ class E2BVisionAgent(CodeAgent):
                 seconds: Number of seconds to wait, generally 3 is enough.
             """
             time.sleep(seconds)
-            self.logger.log(f"Waited for {seconds} seconds")
+            self._emit_ui_log(f"Waited for {seconds} seconds")
             return f"Waited for {seconds} seconds"
 
         @tool
@@ -269,8 +265,8 @@ class E2BVisionAgent(CodeAgent):
                 url = f"https://{url}"
             self.desktop.open(url)
 
-            time.sleep(2)  # Wait for Firefox to start and page to load
-            self.logger.log(f"Opening URL: {url}")
+            time.sleep(2)  # Wait for the browser to start and page to load
+            self._emit_ui_log(f"Opening URL: {url}")
             return f"Opened URL: {url}"
 
         @tool
@@ -280,8 +276,39 @@ class E2BVisionAgent(CodeAgent):
             Args:
                 app: The application to launch
             """
-            self.desktop.commands.run(f"{app}", background=True)
-            return f"Launched application: {app}"
+            requested_app = app.strip()
+            browser_aliases = {
+                "firefox",
+                "firefox-esr",
+                "chromium",
+                "browser",
+                "web browser",
+            }
+
+            if requested_app.lower() in browser_aliases:
+                # In local mode, opening a visible browser through the desktop API is
+                # more reliable than depending on distro-specific binary names.
+                self.desktop.open("https://www.google.com")
+                launched_app = "chromium"
+            else:
+                self.desktop.commands.run(requested_app, background=True)
+                launched_app = requested_app
+
+            self._emit_ui_log(f"Launched application: {launched_app}")
+            return f"Launched application: {launched_app}"
+
+        @tool
+        def summary() -> str:
+            """
+            Compatibility helper for local models that hallucinate summary().
+            After using it, inspect the page and finish with final_answer(...).
+            """
+            message = (
+                "summary() is only a compatibility helper. Inspect the current page "
+                "and conclude with final_answer(...) in the next step."
+            )
+            self._emit_ui_log(message)
+            return message
 
         # Register the tools
         self.tools["click"] = click
@@ -294,6 +321,7 @@ class E2BVisionAgent(CodeAgent):
         self.tools["wait"] = wait
         self.tools["open_url"] = open_url
         self.tools["launch"] = launch
+        self.tools["summary"] = summary
         self.tools["go_back"] = go_back
         self.tools["drag"] = drag
         self.tools["scroll"] = scroll

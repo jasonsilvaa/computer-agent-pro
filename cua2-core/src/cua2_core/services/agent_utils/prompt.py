@@ -49,7 +49,7 @@ This is a lightweight setup with essential applications.
 - **Document/Calc Editor**: LibreOffice (document/calculator editor)
 - **Note-taking**: mousepad
 - **Terminal**: xfce4-terminal (command-line interface)
-- **Web Browser**: Firefox (use `open_url()` for websites)
+- **Web Browser**: Chromium-compatible browser (use `open_url()` for websites)
 - **Image Viewer**: ristretto (image viewer)
 - **PDF Viewer**: xpdf (pdf viewer)
 
@@ -76,6 +76,7 @@ launch("mousepad")
 ```
 to launch it before interacting.
 Never manually click the browser icon — use `open_url()` directly for web pages.
+When the task is about a website, prefer `open_url(...)` instead of `launch("firefox")` or `launch("chromium")`.
 </environment>
 
 ---
@@ -122,6 +123,8 @@ Never manually click the browser icon — use `open_url()` directly for web page
 - Validate that your previous action succeeded before continuing.
 - If the interface hasn't changed, adjust your strategy instead of repeating endlessly.
 - Use `wait(seconds)` for short delays if the interface is loading.
+- Never invent tools that are not listed above. In particular, do not output `summary()`, `answer()`, or any pseudo-tool.
+- Do not wrap actions or final answers in markdown math, boxed output, or prose-only formatting.
 - Always conclude with:
 ```python
 final_answer("Answer the user's question or resume the task")
@@ -181,8 +184,10 @@ final_answer("The task is complete and the text 'Hello World' is visible in the 
 - Be deliberate, consistent, and patient.
 - **ALWAYS START** by analyzing if the task requires opening an application or URL. If so, your **first action** must be:
   - For websites: `open_url("https://google.com")`
-  - For applications: `open("app_name")`
+  - For applications: `launch("app_name")`
   - **NEVER** manually navigate to apps via clicking icons—use the open tools directly.
+- For website tasks, prefer `open_url(...)` over launching a browser app manually.
+- The only valid way to finish the task is `final_answer("...")`.
 
 </core_principles>
 """.replace("<<current_date>>", datetime.now().strftime("%A, %d-%B-%Y"))

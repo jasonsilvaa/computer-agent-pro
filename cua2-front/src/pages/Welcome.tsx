@@ -1,19 +1,22 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useSendTask } from '@/hooks/useSendTask';
 import { Box } from '@mui/material';
 import { WelcomeScreen } from '@/components';
 import { useAgentStore, selectIsConnected } from '@/stores/agentStore';
 
-const Welcome = () => {
+interface WelcomeProps {
+  sendTask: (instruction: string, modelId: string) => boolean;
+}
+
+const Welcome = ({ sendTask }: WelcomeProps) => {
   const navigate = useNavigate();
   const isConnected = useAgentStore(selectIsConnected);
-  const sendTask = useSendTask();
 
   const handleSendNewTask = (instruction: string, modelId: string) => {
-    sendTask(instruction, modelId);
-    // Defer navigate to ensure store (trace) is updated before Task mounts
-    setTimeout(() => navigate('/task'), 50);
+    const started = sendTask(instruction, modelId);
+    if (started) {
+      navigate('/task');
+    }
   };
 
   return (

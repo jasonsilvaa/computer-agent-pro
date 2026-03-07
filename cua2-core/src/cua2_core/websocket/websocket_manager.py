@@ -105,7 +105,7 @@ class WebSocketManager:
         metadata: AgentTraceMetadata,
         websocket: WebSocket,
         final_state: Literal[
-            "success", "stopped", "max_steps_reached", "error", "timeout"
+            "success", "stopped", "max_steps_reached", "error", "sandbox_timeout"
         ],
     ):
         """Send agent complete event"""
@@ -117,9 +117,11 @@ class WebSocketManager:
         event = AgentErrorEvent(error=error)
         await self.send_message(event, websocket)
 
-    async def send_agent_log(self, message: object, websocket: WebSocket):
+    async def send_agent_log(
+        self, trace_id: str, message: object, websocket: WebSocket
+    ):
         """Send tool execution log (print) to frontend"""
-        event = AgentLogEvent(message=str(message))
+        event = AgentLogEvent(traceId=trace_id, message=str(message))
         await self.send_message(event, websocket)
 
     async def send_vnc_url_set(self, vnc_url: str, websocket: WebSocket):

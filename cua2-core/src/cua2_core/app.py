@@ -2,6 +2,7 @@ import os
 from contextlib import asynccontextmanager
 
 from cua2_core.services.agent_service import AgentService
+from cua2_core.services.agent_utils.get_model import get_app_mode
 from cua2_core.services.local_sandbox_service import LocalSandboxService
 from cua2_core.websocket.websocket_manager import WebSocketManager
 from dotenv import load_dotenv
@@ -13,11 +14,19 @@ load_dotenv()
 
 
 def _create_sandbox_service(max_sandboxes: int):
-    """Use LocalSandboxService (no E2B/HF keys) or E2B when E2B_API_KEY is set."""
-    if os.getenv("E2B_API_KEY"):
-        from cua2_core.services.sandbox_service import SandboxService
-        return SandboxService(max_sandboxes=max_sandboxes)
-    return LocalSandboxService(max_sandboxes=max_sandboxes)
+    """Create the sandbox service for the configured app mode."""
+    app_mode = get_app_mode()
+    if app_mode == "local":
+        return LocalSandboxService(max_sandboxes=max_sandboxes)
+
+    if not os.getenv("HF_TOKEN"):
+        raise ValueError("HF_TOKEN is required when APP_MODE=original")
+    if not os.getenv("E2B_API_KEY"):
+        raise ValueError("E2B_API_KEY is required when APP_MODE=original")
+
+    from cua2_core.services.sandbox_service import SandboxService
+
+    return SandboxService(max_sandboxes=max_sandboxes)
 
 
 @asynccontextmanager
@@ -26,7 +35,8 @@ async def lifespan(app: FastAPI):
     # Startup: Initialize services
     print("Initializing services...")
 
-    max_sandboxes = 600
+    app_mode = get_app_mode()
+    max_sandboxes = 1 if app_mode == "local" else 600
     websocket_manager = WebSocketManager()
     sandbox_service = _create_sandbox_service(max_sandboxes)
     agent_service = AgentService(websocket_manager, sandbox_service, max_sandboxes)
@@ -39,8 +49,9 @@ async def lifespan(app: FastAPI):
     app.state.sandbox_service = sandbox_service
     app.state.agent_service = agent_service
 
-    mode = "E2B cloud" if os.getenv("E2B_API_KEY") else "local (no API keys)"
-    print(f"Services initialized successfully (mode: {mode})")
+    print(
+        f"Services initialized successfully (mode: {app_mode}, max_sandboxes: {max_sandboxes})"
+    )
 
     yield
 

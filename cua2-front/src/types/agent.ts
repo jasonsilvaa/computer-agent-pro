@@ -72,6 +72,7 @@ interface AgentErrorEvent {
 
 interface AgentLogEvent {
   type: 'agent_log';
+  traceId: string;
   message: string;
 }
 
@@ -86,7 +87,7 @@ interface VncUrlUnsetEvent {
 
 interface HeartbeatEvent {
   type: 'heartbeat';
-  uuid: string;
+  traceId: string;
 }
 
 export type WebSocketEvent =
@@ -104,7 +105,9 @@ export type WebSocketEvent =
 
 export interface UserTaskMessage {
   type: 'user_task';
-  trace: AgentTrace;
+  traceId: string;
+  instruction: string;
+  modelId: string;
 }
 
 

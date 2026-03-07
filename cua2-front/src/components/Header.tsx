@@ -12,10 +12,11 @@ import SmartToyIcon from '@mui/icons-material/SmartToy';
 import FormatListNumberedIcon from '@mui/icons-material/FormatListNumbered';
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
 import StopCircleIcon from '@mui/icons-material/StopCircle';
-import { useAgentStore, selectTrace, selectError, selectIsDarkMode, selectMetadata, selectIsConnectingToDesktop, selectFinalStep } from '@/stores/agentStore';
+import { useAgentStore, selectTrace, selectExecutionStatus, selectIsDarkMode, selectMetadata, selectIsConnectingToDesktop, selectFinalStep } from '@/stores/agentStore';
 
 interface HeaderProps {
   isAgentProcessing: boolean;
+  onStopTask?: () => void;
   onBackToHome?: () => void;
 }
 
@@ -73,10 +74,10 @@ const iconFlash = keyframes`
   }
 `;
 
-export const Header: React.FC<HeaderProps> = ({ isAgentProcessing, onBackToHome }) => {
+export const Header: React.FC<HeaderProps> = ({ isAgentProcessing, onStopTask, onBackToHome }) => {
   const trace = useAgentStore(selectTrace);
-  const error = useAgentStore(selectError);
   const finalStep = useAgentStore(selectFinalStep);
+  const executionStatus = useAgentStore(selectExecutionStatus);
   const isDarkMode = useAgentStore(selectIsDarkMode);
   const toggleDarkMode = useAgentStore((state) => state.toggleDarkMode);
   const metadata = useAgentStore(selectMetadata);
@@ -148,11 +149,16 @@ export const Header: React.FC<HeaderProps> = ({ isAgentProcessing, onBackToHome 
           return { label: 'Task stopped', color: 'warning', icon: <StopCircleIcon sx={{ fontSize: 16, color: 'warning.main' }} /> };
         case 'max_steps_reached':
           return { label: 'Max steps reached', color: 'warning', icon: <HourglassEmptyIcon sx={{ fontSize: 16, color: 'warning.main' }} /> };
+        case 'sandbox_timeout':
+          return { label: 'Sandbox timeout', color: 'error', icon: <HourglassEmptyIcon sx={{ fontSize: 16, color: 'error.main' }} /> };
         case 'success':
           return { label: 'Completed', color: 'success', icon: <CheckIcon sx={{ fontSize: 16, color: 'success.main' }} /> };
       }
     }
     // Otherwise check running states
+    if (executionStatus === 'stopping') {
+      return { label: 'Stopping...', color: 'warning', icon: <CircularProgress size={16} thickness={5} sx={{ color: 'warning.main' }} /> };
+    }
     if (isConnectingToDesktop) return { label: 'Connecting to desktop...', color: 'primary', icon: <CircularProgress size={16} thickness={5} sx={{ color: 'primary.main' }} /> };
     if (isAgentProcessing || trace?.isRunning) return { label: 'Running', color: 'primary', icon: <CircularProgress size={16} thickness={5} sx={{ color: 'primary.main' }} /> };
     return { label: 'Ready', color: 'default', icon: <CheckIcon sx={{ fontSize: 16, color: 'text.secondary' }} /> };
@@ -164,12 +170,7 @@ export const Header: React.FC<HeaderProps> = ({ isAgentProcessing, onBackToHome 
   const modelName = trace?.modelId?.split('/').pop() || 'Unknown Model';
 
   // Handler for emergency stop
-  const handleEmergencyStop = () => {
-    const stopTask = (window as Window & { __stopCurrentTask?: () => void }).__stopCurrentTask;
-    if (stopTask) {
-      stopTask();
-    }
-  };
+  const handleEmergencyStop = () => onStopTask?.();
 
   return (
     <AppBar
@@ -227,6 +228,7 @@ export const Header: React.FC<HeaderProps> = ({ isAgentProcessing, onBackToHome 
                 variant="outlined"
                 size="small"
                 startIcon={<StopCircleIcon />}
+                disabled={!onStopTask || executionStatus === 'stopping'}
                 sx={{
                   color: 'error.main',
                   borderColor: 'error.main',
@@ -242,7 +244,7 @@ export const Header: React.FC<HeaderProps> = ({ isAgentProcessing, onBackToHome 
                   },
                 }}
               >
-                Stop
+                {executionStatus === 'stopping' ? 'Stopping...' : 'Stop'}
               </Button>
             )}
 

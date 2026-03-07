@@ -204,6 +204,7 @@ class AgentLogEvent(BaseModel):
     """Tool execution log event (prints from agent)"""
 
     type: Literal["agent_log"] = "agent_log"
+    traceId: str
     message: str
 
 
@@ -224,7 +225,7 @@ class HeartbeatEvent(BaseModel):
     """Heartbeat event"""
 
     type: Literal["heartbeat"] = "heartbeat"
-    uuid: str = Field(default_factory=lambda: str(uuid4()))
+    traceId: str = Field(default_factory=lambda: str(uuid4()))
 
 
 WebSocketEvent: TypeAlias = Annotated[
@@ -246,14 +247,16 @@ WebSocketEvent: TypeAlias = Annotated[
 class UserTaskMessage(BaseModel):
     """Message sent from frontend to backend"""
 
-    event_type: Literal["user_task"]
-    agent_trace: AgentTrace | None = None
+    type: Literal["user_task"]
+    traceId: str
+    instruction: str
+    modelId: str
 
 
-class StopTask(BaseModel):
+class StopTaskMessage(BaseModel):
     """Stop task message"""
 
-    event_type: Literal["stop_task"]
+    type: Literal["stop_task"]
     traceId: str
 
 

@@ -3,12 +3,15 @@ FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV DISPLAY=:99
 
+# Xvfb, X11, desktop, and pyautogui/Xlib automation dependencies
 RUN apt-get update && apt-get install -y \
     xvfb \
+    xauth \
     xfce4 \
     x11vnc \
     x11-utils \
     firefox \
+    chromium-browser \
     curl \
     dbus-x11 \
     python3 \
@@ -16,7 +19,15 @@ RUN apt-get update && apt-get install -y \
     python3-venv \
     python3-tk \
     python3-dev \
+    python3-xlib \
     scrot \
+    libxtst6 \
+    libxext6 \
+    libxrandr2 \
+    libxinerama1 \
+    libxcursor1 \
+    libxi6 \
+    util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

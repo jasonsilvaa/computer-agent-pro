@@ -32,6 +32,11 @@ Xvfb :99 -screen 0 "${DESKTOP_WIDTH}x${DESKTOP_HEIGHT}x24" -ac +extension RANDR 
 # Wait for the virtual display to be reachable.
 wait_for_command "xdpyinfo -display :99" 30 "Xvfb did not become ready on :99"
 
+# Create X authority so Python/pyautogui (Xlib) can connect to :99 for mouse/keyboard.
+export XAUTHORITY="${XAUTHORITY:-/root/.Xauthority}"
+touch "$XAUTHORITY"
+xauth -f "$XAUTHORITY" add :99 . $(mcookie)
+
 eval "$(dbus-launch --sh-syntax)"
 
 # Start a real XFCE desktop session so noVNC shows an actual Linux desktop.

@@ -7,6 +7,7 @@ import io
 import os
 import socket
 import subprocess
+import sys
 import time
 import unicodedata
 
@@ -204,6 +205,47 @@ def keyboard_press():
     return jsonify({"ok": True})
 
 
+def _open_browser_cmd(url: str, browser: str, env: dict):
+    """Launch browser on DISPLAY :99. Prefer Firefox (reliable in Xvfb); fallback to Playwright Chromium."""
+    # Ensure X is available to the child process
+    env["DISPLAY"] = ":99"
+    env.setdefault("XAUTHORITY", "/root/.Xauthority")
+    if browser == "chromium":
+        # Try system Chromium first (if installed), then Playwright
+        for cmd in (
+            ["chromium-browser", "--no-sandbox", "--disable-dev-shm-usage", url],
+            ["chromium", "--no-sandbox", "--disable-dev-shm-usage", url],
+            [sys.executable, "-m", "playwright", "open", "--browser", "chromium", url],
+        ):
+            try:
+                subprocess.Popen(
+                    cmd,
+                    env=env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                return
+            except FileNotFoundError:
+                continue
+        # Fallback to Firefox
+        subprocess.Popen(
+            ["firefox", "--new-window", url],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    else:
+        subprocess.Popen(
+            ["firefox", "--new-window", url],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+
 @app.route("/open_browser", methods=["POST"])
 def open_browser():
     data = request.get_json() or {}
@@ -212,28 +254,17 @@ def open_browser():
     if not url.startswith("http"):
         url = f"https://{url}"
     env = os.environ.copy()
-    env["DISPLAY"] = ":99"
     try:
-        if browser == "chromium":
-            subprocess.Popen(
-                ["python", "-m", "playwright", "open", "--browser", "chromium", url],
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        else:
-            subprocess.Popen(
-                ["firefox", "--new-window", url],
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+        _open_browser_cmd(url, browser, env)
     except Exception:
+        env["DISPLAY"] = ":99"
+        env.setdefault("XAUTHORITY", "/root/.Xauthority")
         subprocess.Popen(
             ["firefox", "--new-window", url],
             env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
     time.sleep(1.5)
     return jsonify({"ok": True, "url": url, "browser": browser})

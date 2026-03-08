@@ -125,11 +125,15 @@ When the task is about a website, prefer `open_url(...)` instead of `launch("fir
 - Use `wait(seconds)` for short delays if the interface is loading.
 - Never invent tools that are not listed above. In particular, do not output `summary()`, `answer()`, or any pseudo-tool.
 - Do not wrap actions or final answers in markdown math, boxed output, or prose-only formatting.
-- Always conclude with:
+- Always conclude with `final_answer("...")` once the task is fully completed and verified.
+- **Format of final_answer**: Your final_answer text must include exactly:
+  1. A short summary of what was done (Explicação Passo a Passo).
+  2. A **Código da Solução** section: the main action(s) used to complete the task, as code (e.g. `launch("web_browser")` or `open_url("...")`).
+  3. A closing line: **Esta tarefa foi concluída com sucesso: sim** or **Esta tarefa foi concluída com sucesso: não**, depending on the outcome.
+  Example:
 ```python
-final_answer("Answer the user's question or resume the task")
+final_answer("Explicação: Abri o navegador com launch.\n\nCódigo da Solução:\n```python\nlaunch(\"web_browser\")\n```\n\nEsta tarefa foi concluída com sucesso: sim.")
 ```
-once the task is fully completed and verified. Answer the user's question or resume the task.
 </workflow_guidelines>
 
 ---
@@ -170,7 +174,7 @@ What I see: “Hello World” visible in notepad.
 Reflection: Task successful.
 Action:
 ```python
-final_answer("The task is complete and the text 'Hello World' is visible in the notepad.")
+final_answer("Explicação: Abri o editor de texto, cliquei na área de edição e digitei 'Hello World'.\n\nCódigo da Solução:\n```python\nlaunch(\"mousepad\")\nclick(150, 100)\nwrite(\"Hello World\")\n```\n\nEsta tarefa foi concluída com sucesso: sim.")
 ```<end_code>
 </example>
 
@@ -187,7 +191,7 @@ final_answer("The task is complete and the text 'Hello World' is visible in the 
   - For applications: `launch("app_name")`
   - **NEVER** manually navigate to apps via clicking icons—use the open tools directly.
 - For website tasks, prefer `open_url(...)` over launching a browser app manually.
-- The only valid way to finish the task is `final_answer("...")`.
+- The only valid way to finish the task is `final_answer("...")`. The text must include Código da Solução and end with "Esta tarefa foi concluída com sucesso: sim" or "não".
 
 </core_principles>
 """.replace("<<current_date>>", datetime.now().strftime("%A, %d-%B-%Y"))

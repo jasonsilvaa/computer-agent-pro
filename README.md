@@ -1,224 +1,122 @@
-# CUA2 - Computer Use Agent
+# CUA2 - Computer Use Agent (Windows, local)
 
-An AI-powered automation interface featuring real-time agent task processing, VNC streaming, and step-by-step execution visualization.
+Interface de automação com agente de IA: processamento de tarefas em tempo real e visualização passo a passo. **Só Windows, sem Docker.**
 
-Based on [smolagents/computer-use-agent](https://huggingface.co/spaces/smolagents/computer-use-agent), this fork now supports two explicit runtime modes:
-
-- `APP_MODE=original`: closest to the upstream architecture, using Hugging Face inference plus E2B sandboxes
-- `APP_MODE=local`: local desktop automation with Ollama and the bundled `desktop` container
+Baseado em [smolagents/computer-use-agent](https://huggingface.co/spaces/smolagents/computer-use-agent).
 
 ---
 
-## Features
+## Pré-requisitos (Windows)
 
-- **Explicit runtime selection**: choose `original` or `local` with `APP_MODE`
-- **Original-compatible path**: supports Hugging Face + E2B as the canonical mode
-- **Local runtime**: uses Ollama plus the bundled desktop container
-- **VNC desktop**: real-time view of the agent's virtual desktop in local mode
-- **4GB VRAM optimized local defaults**: local model list prioritizes `qwen3-vl:2b`
-
----
-
-## Prerequisites
-
-- [Docker](https://docs.docker.com/get-docker/) and Docker Compose
-- ~8GB RAM recommended
-- GPU optional (CPU works, but slower)
+- **Python 3.10+** – [python.org](https://www.python.org/downloads/) ou Microsoft Store  
+- **uv** (recomendado) ou pip: `pip install uv`  
+- **Node.js 18+** – [nodejs.org](https://nodejs.org/)  
+- **Ollama** – [ollama.ai](https://ollama.ai) (instale e deixe rodando)
 
 ---
 
-## Quick Start
+## Quick Start (3 terminais)
 
-### Local mode with Docker Compose
+### 1. Ollama
 
-`docker-compose.yml` is the local runtime and sets `APP_MODE=local`.
+Instale o [Ollama para Windows](https://ollama.ai), abra e baixe um modelo:
 
-```bash
-git clone https://github.com/jasonsilvaa/computer-agent-pro.git
-cd computer-agent-pro
-docker compose up --build
+```powershell
+ollama pull qwen2.5-vl:3b
 ```
 
-1. On first run, Ollama pulls the local models automatically. Wait 2-5 minutes.
-2. Open `http://localhost:7860` for the main UI.
-3. Open `http://localhost:6080/vnc.html` to inspect the local desktop stream.
+### 2. Dependências do projeto
 
-### Como replicar (replicação em um comando)
+Na raiz do repositório:
 
-Para replicar o projeto em outra máquina com um único comando, use os scripts de setup:
-
-- **Linux / macOS:** `./scripts/setup.sh` (após `chmod +x scripts/setup.sh`)
-- **Windows (PowerShell):** `.\scripts\setup.ps1`
-
-Guia completo (pré-requisitos, estrutura, troubleshooting): **[docs/REPLICATION.md](./docs/REPLICATION.md)**.
-
-### Original-compatible mode
-
-Create `cua2-core/.env` based on `cua2-core/env.example` and set:
-
-```env
-APP_MODE=original
-HF_TOKEN=your_huggingface_token
-E2B_API_KEY=your_e2b_api_key
+```powershell
+cd cua2-core; uv sync --all-extras; cd ..
+cd cua2-front; npm install; cd ..
+pip install -r desktop/requirements_mock.txt
 ```
 
-In this mode the backend requires both credentials and uses the original cloud-style path instead of the local desktop runtime.
+### 3. Configurar env
 
----
-
-## Make Commands
-
-| Command | Description |
-|---------|-------------|
-| `make compose-up` | Start all services (foreground) |
-| `make compose-up-d` | Start in background |
-| `make compose-down` | Stop all services |
-| `make docker-logs` | Stream logs from all containers |
-| `make dev-backend` | Run backend with hot reload |
-| `make dev-frontend` | Run frontend dev server |
-
----
-
-## View Logs
-
-```bash
-# All services
-docker compose logs -f
-
-# Only CUA2 backend
-docker compose logs -f cua2
-
-# Last 100 lines
-docker compose logs --tail=100 cua2
+```powershell
+copy .env.example cua2-core\.env
 ```
 
+O arquivo `cua2-core\.env` já deve estar com `APP_MODE=local`, `OLLAMA_BASE_URL=http://localhost:11434` e `DESKTOP_API_URL=http://localhost:5000`.
+
+### 4. Subir os 3 serviços
+
+**Terminal 1 – Desktop (mock, para o backend não falhar):**
+
+```powershell
+.\scripts\run_desktop.ps1
+```
+
+**Terminal 2 – Backend:**
+
+```powershell
+.\scripts\run_backend.ps1
+```
+
+**Terminal 3 – Frontend:**
+
+```powershell
+.\scripts\run_frontend.ps1
+```
+
+- **Interface:** http://localhost:8080  
+- **API:** http://localhost:8000  
+- **Docs:** http://localhost:8000/docs  
+
 ---
 
-## Project Structure
+## Sobre o desktop no Windows
+
+No Windows não há controle real de mouse/teclado/tela. Por isso existe um **mock** (`desktop_mock_win.py`): ele responde às mesmas rotas da API de desktop (health, screenshot, mouse, teclado, browser) mas **não executa nada**. O backend e o agente rodam normalmente; o modelo “vê” uma tela preta e as ações são simuladas. Útil para testar fluxo, UI e respostas do modelo. Para automação real (cliques, abrir browser, etc.) seria preciso Linux ou WSL com Xvfb.
+
+---
+
+## Estrutura
 
 ```
 computer-agent-pro/
-├── cua2-core/          # Backend (FastAPI, agent logic)
-├── cua2-front/         # Frontend (React + Vite)
-├── desktop/            # Virtual desktop container (noVNC + API)
-├── ollama/             # Ollama container for local LLMs
-├── scripts/            # setup.sh, setup.ps1, pull_models.sh, pull_models.ps1
-├── docs/               # REPLICATION.md (guia de replicação)
-├── docker-compose.yml
-├── Dockerfile
-└── Makefile
+├── cua2-core/           # Backend FastAPI (agente + Ollama)
+├── cua2-front/          # Frontend React (Vite)
+├── desktop/
+│   ├── desktop_mock_win.py   # Mock da API de desktop (Windows)
+│   └── requirements_mock.txt # flask, pillow
+├── scripts/
+│   ├── run_backend.ps1
+│   ├── run_frontend.ps1
+│   └── run_desktop.ps1   # Roda o mock no Windows
+├── .env.example
+└── README.md
 ```
 
 ---
 
-## Architecture
+## Comandos úteis
 
-For the full technical architecture, including containers, backend services, frontend state, execution flow, WebSocket events, and repository layout, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+| Ação           | Comando |
+|----------------|--------|
+| Backend        | `.\scripts\run_backend.ps1` |
+| Frontend       | `.\scripts\run_frontend.ps1` |
+| Desktop mock   | `.\scripts\run_desktop.ps1` |
+| Testes backend | `cd cua2-core; uv run pytest tests/ -v` |
 
 ---
 
-## Configuration
+## Modo original (Hugging Face + E2B)
 
-### Runtime modes
-
-The backend no longer falls back silently based on missing tokens. Set the mode explicitly:
+Se quiser usar Hugging Face e E2B em vez de Ollama, em `cua2-core\.env`:
 
 ```env
 APP_MODE=original
-```
-
-or:
-
-```env
-APP_MODE=local
-```
-
-### `APP_MODE=original`
-
-Required:
-
-```env
-APP_MODE=original
-HF_TOKEN=your_huggingface_token
-E2B_API_KEY=your_e2b_api_key
-```
-
-Behavior:
-
-- uses Hugging Face inference models
-- uses `SandboxService`
-- matches the upstream runtime more closely
-
-### `APP_MODE=local`
-
-Typical local variables:
-
-```env
-APP_MODE=local
-DESKTOP_API_URL=http://desktop:5000
-OLLAMA_BASE_URL=http://ollama:11434
-VNC_URL=http://localhost:6080/vnc.html
-DESKTOP_WIDTH=1280
-DESKTOP_HEIGHT=720
-```
-
-Behavior:
-
-- uses Ollama multimodal models
-- uses `LocalSandboxService`
-- exposes the local VNC stream
-
-### GPU support (RTX 3050 4GB)
-
-GPU is enabled in `docker-compose.yml` for NVIDIA. Requirements:
-
-- **Windows (Docker Desktop)**: Settings → Resources → WSL Integration → enable "Use the WSL 2 based engine" and restart. Keep NVIDIA drivers updated.
-- **Linux**: Install [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
-
-Default models (llava, qwen3-vl:2b, qwen3-vl:4b) are suitable for 4GB VRAM.
-
----
-
-## Local Development
-
-```bash
-# Install dependencies
-make sync
-
-# Terminal 1: Backend
-make dev-backend
-
-# Terminal 2: Frontend
-make dev-frontend
-```
-
-Backend runs on port 8000, frontend on its dev port. For the bundled local runtime (`APP_MODE=local` with desktop + Ollama), use `docker compose up` instead.
-
----
-
-## Pre-pull Models (optional)
-
-If you want to pull models before first use:
-
-```bash
-# Start only Ollama
-docker compose up -d ollama
-
-# Wait for healthy, then:
-./scripts/pull_models.sh       # Linux/macOS
-# or
-.\scripts\pull_models.ps1      # Windows PowerShell
+HF_TOKEN=seu_token
+E2B_API_KEY=sua_chave
 ```
 
 ---
 
-## Credits
+## Créditos
 
-- Original project: [smolagents/computer-use-agent](https://huggingface.co/spaces/smolagents/computer-use-agent) by [smolagents](https://github.com/huggingface/smolagents)
-- Built with [smolagents](https://github.com/huggingface/smolagents), [Ollama](https://ollama.ai), and [noVNC](https://github.com/novnc/noVNC)
-
----
-
-## License
-
-See the original project for license terms.
+- [smolagents/computer-use-agent](https://huggingface.co/spaces/smolagents/computer-use-agent), [Ollama](https://ollama.ai)

@@ -1,4 +1,4 @@
-.PHONY: sync setup install dev-backend dev-frontend dev clean docker-build compose-up compose-up-d compose-down docker-stop docker-clean docker-logs
+.PHONY: sync setup install dev-backend dev-frontend dev clean
 
 # Sync all dependencies (Python + Node.js)
 sync:
@@ -39,30 +39,3 @@ clean:
 	cd cua2-front && rm -rf node_modules dist 2>/dev/null || true
 	@echo "✓ Cleaned!"
 
-# Docker commands (local mode - no API keys)
-compose-up:
-	@echo "Starting CUA2 (local mode, no tokens)..."
-	docker compose up --build
-
-compose-up-d:
-	@echo "Starting CUA2 in background (local mode, no tokens)..."
-	docker compose up -d --build
-	@echo "✓ Access at http://localhost:7860 | VNC: http://localhost:6080/vnc.html"
-
-compose-down:
-	docker compose down
-
-docker-build:
-	@echo "Building Docker images..."
-	docker compose build
-	@echo "✓ Docker images built!"
-
-docker-stop: compose-down
-
-docker-clean:
-	@echo "Removing Docker images..."
-	docker compose down --rmi local -v 2>/dev/null || true
-	@echo "✓ Cleaned!"
-
-docker-logs:
-	docker compose logs -f

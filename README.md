@@ -43,6 +43,15 @@ docker compose up --build
 2. Open `http://localhost:7860` for the main UI.
 3. Open `http://localhost:6080/vnc.html` to inspect the local desktop stream.
 
+### Como replicar (replicação em um comando)
+
+Para replicar o projeto em outra máquina com um único comando, use os scripts de setup:
+
+- **Linux / macOS:** `./scripts/setup.sh` (após `chmod +x scripts/setup.sh`)
+- **Windows (PowerShell):** `.\scripts\setup.ps1`
+
+Guia completo (pré-requisitos, estrutura, troubleshooting): **[docs/REPLICATION.md](./docs/REPLICATION.md)**.
+
 ### Original-compatible mode
 
 Create `cua2-core/.env` based on `cua2-core/env.example` and set:
@@ -93,7 +102,8 @@ computer-agent-pro/
 ├── cua2-front/         # Frontend (React + Vite)
 ├── desktop/            # Virtual desktop container (noVNC + API)
 ├── ollama/             # Ollama container for local LLMs
-├── scripts/            # pull_models.sh, pull_models.ps1
+├── scripts/            # setup.sh, setup.ps1, pull_models.sh, pull_models.ps1
+├── docs/               # REPLICATION.md (guia de replicação)
 ├── docker-compose.yml
 ├── Dockerfile
 └── Makefile

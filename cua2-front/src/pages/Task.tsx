@@ -1,4 +1,5 @@
 import { ExecutionLog, Header, SandboxViewer, StepsList, Timeline } from '@/components';
+import { PrintStream } from '@/components/PrintStream';
 import {
   selectExecutionStatus,
   selectFinalStep,
@@ -134,6 +135,11 @@ const Task = ({ stopCurrentTask }: TaskProps) => {
                 user_evaluation: metadata?.user_evaluation || 'not_evaluated',
               }}
               isRunning={trace?.isRunning || false}
+            />
+
+            <PrintStream
+              trace={trace}
+              isAgentProcessing={isAgentProcessing}
             />
 
             {/* Execution log - model responses and tool prints */}

@@ -74,6 +74,7 @@ def _get_desktop_health() -> dict:
     screenshot_error = None
     dark_ratio = 1.0
     screen_size = None
+    screen_visible = False
     try:
         image = _capture_pil_image()
         screen_size = [image.width, image.height]
@@ -82,6 +83,7 @@ def _get_desktop_health() -> dict:
         dark_pixels = sum(histogram[:8])
         total_pixels = grayscale.width * grayscale.height or 1
         dark_ratio = dark_pixels / total_pixels
+        screen_visible = dark_ratio < 0.98
     except Exception as exc:
         screenshot_error = str(exc)
 
@@ -100,7 +102,6 @@ def _get_desktop_health() -> dict:
         and websockify_running
         and vnc_port_open
         and novnc_port_open
-        and dark_ratio < 0.98
     )
     return {
         "display": os.environ.get("DISPLAY", ":99"),
@@ -111,6 +112,7 @@ def _get_desktop_health() -> dict:
         "novnc_port_open": novnc_port_open,
         "screen_size": screen_size,
         "dark_ratio": dark_ratio,
+        "screen_visible": screen_visible,
         "screenshot_error": screenshot_error,
         "ready": ready,
     }

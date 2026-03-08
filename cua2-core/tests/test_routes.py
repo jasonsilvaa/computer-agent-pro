@@ -4,7 +4,12 @@ import pytest
 from cua2_core.models.models import AvailableModelsResponse, UpdateStepResponse
 from cua2_core.routes.routes import router
 from cua2_core.services.agent_service import AgentService
-from cua2_core.services.agent_utils.get_model import AVAILABLE_MODELS
+from cua2_core.services.agent_utils.get_model import (
+    HF_MODELS,
+    LOCAL_MODELS,
+    AVAILABLE_MODELS,
+    get_app_mode,
+)
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
@@ -95,11 +100,9 @@ class TestGetAvailableModels:
         assert response.status_code == 200
         data = response.json()
 
-        # Check for some specific models
-        expected_models = [
-            "Qwen/Qwen3-VL-8B-Instruct",
-            "Qwen/Qwen3-VL-30B-A3B-Instruct",
-        ]
+        expected_models = (
+            LOCAL_MODELS[:2] if get_app_mode() == "local" else HF_MODELS[:2]
+        )
 
         for model in expected_models:
             assert model in data["models"]

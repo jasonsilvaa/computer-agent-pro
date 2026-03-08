@@ -539,7 +539,7 @@ class AgentService:
                 agent_actions = (
                     AgentAction.from_function_calls(parsed_calls)
                     if parsed_calls
-                    else None
+                    else []
                 )
 
                 step_summary = None
